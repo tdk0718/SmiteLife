@@ -36,17 +36,484 @@
       text-shadow: 1px 1px 4px #000;
       pointer-events: none;
     }
+
+    /* 右上の所持素材HUD */
+    #inv-hud {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 12px;
+      background: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      font-family: monospace;
+      font-size: 16px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    #inv-hud .empty { opacity: 0.6; }
+
+    /* 左上のステータス */
+    #stats-panel {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      width: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      font-family: monospace;
+      color: #fff;
+      pointer-events: none;
+    }
+    .stat-row {
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+    .stat-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      text-shadow: 1px 1px 2px #000;
+    }
+    .stat-bar {
+      height: 10px;
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .stat-fill {
+      height: 100%;
+      width: 100%;
+      border-radius: 99px;
+      transition: width 0.15s linear;
+    }
+    #hp-fill { background: linear-gradient(90deg,#b51d1d,#e04b4b); }
+    #hunger-fill { background: linear-gradient(90deg,#b57a1d,#e0b039); }
+    #stamina-fill { background: linear-gradient(90deg,#1d8fb5,#39c0e0); }
+    #xp-fill { background: linear-gradient(90deg,#5a2da0,#9b5de5); }
+    #level-row .stat-label b { color: #ffd700; }
+    #level-badge {
+      font-weight: bold;
+      color: #ffd700;
+      text-shadow: 1px 1px 2px #000;
+    }
+
+    /* インタラクトヒント */
+    #interact-hint {
+      position: fixed;
+      bottom: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(10, 10, 10, 0.75);
+      color: #ffe9a8;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      pointer-events: none;
+      min-height: 1.5em;
+      transition: opacity 0.2s;
+    }
+    #interact-hint:empty { opacity: 0; }
+
+    /* 置くボタン */
+    .inv-place-btn {
+      margin-top: 6px;
+      cursor: pointer;
+      border: 1px solid #4a8a6a;
+      border-radius: 6px;
+      background: #1e3d2a;
+      color: #8de8b8;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-family: monospace;
+      display: block;
+      width: 100%;
+    }
+    .inv-place-btn:hover { background: #2a5438; }
+
+    /* 入手トースト */
+    #pickup-toast {
+      position: fixed;
+      top: 64px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20, 20, 20, 0.8);
+      color: #ffe9a8;
+      font-family: monospace;
+      font-size: 15px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      white-space: nowrap;
+    }
+
+    /* アイテムボックス（インベントリ） */
+    #inventory-panel {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 10;
+    }
+    #inventory-window {
+      width: min(520px, 90vw);
+      max-height: 70vh;
+      overflow-y: auto;
+      background: #2b2620;
+      border: 2px solid #8B6914;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      color: #f0e6d2;
+      font-family: serif;
+      padding: 18px 20px;
+    }
+    #inventory-window h2 {
+      font-size: 20px;
+      margin-bottom: 14px;
+      color: #ffd700;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    #inventory-window h2 small {
+      font-family: monospace;
+      font-size: 12px;
+      color: #cbb88a;
+      font-weight: normal;
+    }
+    #inventory-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 12px;
+    }
+    .inv-slot {
+      background: #3a342b;
+      border: 1px solid #5c4f36;
+      border-radius: 8px;
+      padding: 12px 8px;
+      text-align: center;
+    }
+    .inv-slot.edible {
+      cursor: pointer;
+      border-color: #9f7a2f;
+    }
+    .inv-slot.edible:hover {
+      background: #4a3d2b;
+    }
+    .inv-icon { font-size: 30px; line-height: 1.2; }
+    .inv-name { font-size: 14px; margin-top: 4px; }
+    .inv-count { font-family: monospace; font-size: 15px; color: #ffd700; margin-top: 2px; }
+    .inv-eat {
+      margin-top: 6px;
+      color: #cbb88a;
+      font-family: monospace;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .inv-empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      color: #cbb88a;
+      font-family: monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      padding: 16px 0;
+    }
+
+    #death-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.72);
+      z-index: 20;
+      color: #fff;
+      font-family: serif;
+      text-align: center;
+    }
+    #death-box {
+      background: #241b1b;
+      border: 2px solid #8b1d1d;
+      border-radius: 12px;
+      padding: 26px 34px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    }
+    #death-box h2 {
+      color: #ff5555;
+      font-size: 30px;
+      margin-bottom: 10px;
+    }
+    #death-box p {
+      color: #e0c8c8;
+      margin-bottom: 18px;
+      font-family: monospace;
+      font-size: 14px;
+    }
+    #respawn-btn {
+      cursor: pointer;
+      border: 1px solid #ffd700;
+      border-radius: 8px;
+      background: #8B6914;
+      color: #fff8d6;
+      padding: 9px 18px;
+      font-weight: bold;
+    }
+    #respawn-btn:hover { background: #a77e18; }
+
+    /* ステータス確認パネル */
+    #status-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 15;
+    }
+    #status-window {
+      width: min(420px, 90vw);
+      background: #25201a;
+      border: 2px solid #8B6914;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+      color: #f0e6d2;
+      font-family: serif;
+      padding: 20px 22px;
+    }
+    #status-window h2 {
+      color: #ffd700;
+      font-size: 20px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    #status-window h2 small { font-family: monospace; font-size: 12px; color: #cbb88a; font-weight: normal; }
+    .status-grid { display: flex; flex-direction: column; gap: 8px; }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      font-family: monospace;
+      font-size: 15px;
+      border-bottom: 1px solid #4a4030;
+      padding-bottom: 6px;
+    }
+    .status-row b { color: #ffe9a8; }
+    .status-note {
+      margin-top: 14px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #cbb88a;
+    }
+
+    /* 装備中バッジ */
+    .eq-badge {
+      background: #ffd700;
+      color: #2b2620;
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .inv-slot.equipped {
+      border-color: #ffd700;
+      background: #3a3015;
+    }
+
+    /* 簡易クラフトパネル */
+    #craft-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 10;
+    }
+    #craft-window {
+      width: min(480px, 92vw);
+      max-height: 75vh;
+      overflow-y: auto;
+      background: #25201a;
+      border: 2px solid #6a5a30;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+      color: #f0e6d2;
+      font-family: serif;
+      padding: 18px 20px;
+    }
+    #craft-window h2 {
+      color: #ffd700;
+      font-size: 20px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    #craft-window h2 small {
+      font-family: monospace;
+      font-size: 12px;
+      color: #cbb88a;
+      font-weight: normal;
+    }
+    .craft-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #4a3d28;
+      padding: 10px 0;
+      gap: 12px;
+    }
+    .craft-row:last-child { border-bottom: none; }
+    .craft-info { flex: 1; }
+    .craft-title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+    .craft-cost {
+      font-family: monospace;
+      font-size: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 3px;
+    }
+    .cost { padding: 2px 6px; border-radius: 4px; }
+    .cost.ok { background: #2a4a2a; color: #88dd88; }
+    .cost.ng { background: #4a2a2a; color: #dd8888; }
+    .craft-desc { font-family: monospace; font-size: 11px; color: #cbb88a; }
+    .craft-btn {
+      cursor: pointer;
+      border: 1px solid #8B6914;
+      border-radius: 8px;
+      background: #5a4010;
+      color: #fff8d6;
+      padding: 8px 14px;
+      font-size: 14px;
+      font-family: serif;
+      white-space: nowrap;
+    }
+    .craft-btn:not([disabled]):hover { background: #7a5818; }
+    .craft-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+    /* 設置モード用クロスヘア */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: none;
+      pointer-events: none;
+      z-index: 30;
+      width: 0;
+      height: 0;
+    }
+    .ch-arm {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 2px;
+      transition: background 0.1s;
+    }
+    /* 横バー */
+    .ch-arm.h  { width: 18px; height: 2px; top: -1px; left: -9px; }
+    /* 縦バー（上半分・下半分で中心4px空ける） */
+    .ch-arm.vt { width: 2px; height: 7px; top: -11px; left: -1px; }
+    .ch-arm.vb { width: 2px; height: 7px; top: 4px;   left: -1px; }
+    /* 中心ドット */
+    .ch-dot {
+      position: absolute;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.92);
+      top: -2px; left: -2px;
+      transition: background 0.1s;
+    }
+    /* スナップ時: 緑 */
+    #crosshair[data-state="snapped"] .ch-arm,
+    #crosshair[data-state="snapped"] .ch-dot { background: rgba(60, 255, 120, 0.97); }
+    /* 無効時: 赤 */
+    #crosshair[data-state="invalid"] .ch-arm,
+    #crosshair[data-state="invalid"] .ch-dot { background: rgba(255, 70, 70, 0.95); }
+    /* 設置可能（地面）: 薄青 */
+    #crosshair[data-state="valid"] .ch-arm,
+    #crosshair[data-state="valid"] .ch-dot   { background: rgba(140, 220, 255, 0.92); }
   </style>
 </head>
 <body>
   <div id="title">⚒ SmiteLife</div>
   <canvas id="canvas"></canvas>
+  <div id="stats-panel">
+    <div class="stat-row" id="level-row">
+      <div class="stat-label"><span id="level-badge"><span id="level-text">Lv.1</span></span><span id="xp-text">EXP 0/50</span></div>
+      <div class="stat-bar"><div id="xp-fill" class="stat-fill"></div></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label"><span>体力</span><span id="hp-text">HP 100/100</span></div>
+      <div class="stat-bar"><div id="hp-fill" class="stat-fill"></div></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label"><span>空腹度</span><span id="hunger-text">空腹 100/100</span></div>
+      <div class="stat-bar"><div id="hunger-fill" class="stat-fill"></div></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-label"><span>スタミナ</span><span id="stamina-text">スタミナ 100/100</span></div>
+      <div class="stat-bar"><div id="stamina-fill" class="stat-fill"></div></div>
+    </div>
+  </div>
+  <div id="inv-hud"></div>
+  <div id="pickup-toast"></div>
+  <div id="interact-hint"></div>
+  <div id="crosshair">
+    <div class="ch-arm h"></div>
+    <div class="ch-arm vt"></div>
+    <div class="ch-arm vb"></div>
+    <div class="ch-dot"></div>
+  </div>
+  <div id="inventory-panel">
+    <div id="inventory-window">
+      <h2>アイテムボックス <small>I キーで閉じる</small></h2>
+      <div id="inventory-grid"></div>
+    </div>
+  </div>
+  <div id="death-overlay">
+    <div id="death-box">
+      <h2>死亡しました</h2>
+      <p>体力が尽きました。空腹度が0になると体力が減り続けます。</p>
+      <button id="respawn-btn">鍛冶場でリスポーン</button>
+    </div>
+  </div>
+  <div id="status-overlay">
+    <div id="status-window">
+      <h2>ステータス <small>C キーで閉じる</small></h2>
+      <div id="status-body"></div>
+    </div>
+  </div>
+  <div id="craft-overlay">
+    <div id="craft-window">
+      <h2>簡易クラフト <small>G キーで閉じる</small></h2>
+      <div id="craft-list"></div>
+    </div>
+  </div>
   <div id="ui">
-    <span>WASD: 移動</span>
+    <span>W/S: 前後移動</span>
+    <span>A/D・←/→: 左右回転</span>
     <span>マウスドラッグ: カメラ回転</span>
     <span>Space: ジャンプ</span>
-    <span>Shift: ダッシュ</span>
-    <span>E: インタラクト</span>
+    <span>Shift: ダッシュ（スタミナ消費）</span>
+    <span>Q: 回避</span>
+    <span>F: 攻撃/採取/設置確定</span>
+    <span>E: 設置物を拾う/使う</span>
+    <span>I: アイテムボックス (置くボタン→設置)</span>
+    <span>G: 簡易クラフト</span>
+    <span>C: ステータス</span>
+    <span>1: 生肉を食べる</span>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>
