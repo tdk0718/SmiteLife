@@ -20,6 +20,7 @@ let isBowAiming = false;
 let prevFPMode   = false;
 
 const DODGE_STAMINA = 25;
+const FIRE_MAGIC_STAMINA = 35;
 
 const canvas = document.getElementById('canvas');
 
@@ -148,6 +149,7 @@ function loop() {
   const attackPressed   = consumePress('attack');   // justPressed を消費（弓狙い中も）
   const interactPressed = consumePress('interact');
   const throwPressed    = consumePress('throw');
+  const castFirePressed = consumePress('castFire');
   const qPressed        = consumePress('dodge');
   const dodgePressed    = qPressed;
   const cancelPressed   = qPressed;
@@ -188,6 +190,18 @@ function loop() {
       Inventory.showPickup(`↗ ${Inventory.ITEMS[throwId]?.name ?? throwId} を投げた`);
     } else {
       Inventory.showPickup('投げられるアイテムがない');
+    }
+  }
+
+  // ── 炎魔法 ──────────────────────────────────────
+  if (!dead && castFirePressed && !PlacedObjects.isInPlacementMode() && !isBowAiming) {
+    if (Stats.spendStamina(FIRE_MAGIC_STAMINA)) {
+      const origin = playerPos.clone().add(new THREE.Vector3(0, 1.45, 0));
+      Projectile.castFireball(origin, Player.getFacing());
+      Player.triggerAttack();
+      Inventory.showPickup('🔥 炎魔法を放った！');
+    } else {
+      Inventory.showPickup('🔥 スタミナが足りない');
     }
   }
 

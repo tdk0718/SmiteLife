@@ -13,6 +13,7 @@ export const keys = {
   status: false,
   craft: false,
   throw: false,
+  castFire: false,
 };
 
 const KEY_MAP = {
@@ -30,6 +31,7 @@ const KEY_MAP = {
   KeyC: 'status',
   KeyG: 'craft',
   KeyT: 'throw',
+  KeyR: 'castFire',
 };
 
 // 「押した瞬間」を1回だけ取り出すためのエッジ管理
