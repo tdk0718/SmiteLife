@@ -1,25 +1,44 @@
 import * as THREE from 'three';
+import { getTerrainHeight } from './scene.js';
 
-const SPEED = 5;
+const SPEED       = 5;
 const SPRINT_MULT = 1.5;
-const JUMP_VELOCITY = 8;
-const GRAVITY = -20;
-const GROUND_Y = 0;
+const JUMP_VEL    = 8;
+const GRAVITY     = -20;
+
+// プレイヤーのAABBサイズ（幅×高さ×奥行き）
+const PLAYER_W = 0.5;
+const PLAYER_H = 1.9;
+const PLAYER_D = 0.5;
 
 let group, head, hair, body, armL, armR, legL, legR;
 let hammerHandle, hammerHead;
-let velY = 0;
-let isOnGround = true;
+let velY    = 0;
+let onGround = true;
 let animTime = 0;
+
+// 衝突判定用 Box3（再利用してGCを抑える）
+const _playerBox = new THREE.Box3();
+const _center    = new THREE.Vector3();
+const _size      = new THREE.Vector3(PLAYER_W, PLAYER_H, PLAYER_D);
+
+function isColliding(px, py, pz, collidableBoxes) {
+  _center.set(px, py + PLAYER_H / 2, pz);
+  _playerBox.setFromCenterAndSize(_center, _size);
+  for (const box of collidableBoxes) {
+    if (_playerBox.intersectsBox(box)) return true;
+  }
+  return false;
+}
 
 export function create(scene) {
   group = new THREE.Group();
 
-  const skin = new THREE.MeshLambertMaterial({ color: 0xffcc99 });
-  const hairMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e });
-  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x666688 });
-  const limbMat = new THREE.MeshLambertMaterial({ color: 0x888899 });
-  const woodMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  const skin     = new THREE.MeshLambertMaterial({ color: 0xffcc99 });
+  const hairMat  = new THREE.MeshLambertMaterial({ color: 0x5c3a1e });
+  const bodyMat  = new THREE.MeshLambertMaterial({ color: 0x666688 });
+  const limbMat  = new THREE.MeshLambertMaterial({ color: 0x888899 });
+  const woodMat  = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
   const metalMat = new THREE.MeshLambertMaterial({ color: 0x999999 });
 
   head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin);
@@ -59,58 +78,78 @@ export function create(scene) {
   hammerHead.castShadow = true;
 
   group.add(head, hair, body, armL, armR, legL, legR, hammerHandle, hammerHead);
-  group.position.y = GROUND_Y;
+  group.position.set(0, 0, 0);
   scene.add(group);
 
   return group;
 }
 
-export function update(delta, inputState, cameraYaw) {
+export function update(delta, inputState, cameraYaw, collidableBoxes) {
   const { forward, backward, left, right, jump, sprint } = inputState;
   const speed = sprint ? SPEED * SPRINT_MULT : SPEED;
 
   let moveX = 0;
   let moveZ = 0;
 
-  if (forward) { moveX -= Math.sin(cameraYaw); moveZ -= Math.cos(cameraYaw); }
+  if (forward)  { moveX -= Math.sin(cameraYaw); moveZ -= Math.cos(cameraYaw); }
   if (backward) { moveX += Math.sin(cameraYaw); moveZ += Math.cos(cameraYaw); }
-  if (left) { moveX -= Math.cos(cameraYaw); moveZ += Math.sin(cameraYaw); }
-  if (right) { moveX += Math.cos(cameraYaw); moveZ -= Math.sin(cameraYaw); }
+  if (left)     { moveX -= Math.cos(cameraYaw); moveZ += Math.sin(cameraYaw); }
+  if (right)    { moveX += Math.cos(cameraYaw); moveZ -= Math.sin(cameraYaw); }
 
   const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-  if (len > 0) {
-    moveX = (moveX / len) * speed * delta;
-    moveZ = (moveZ / len) * speed * delta;
-    group.position.x += moveX;
-    group.position.z += moveZ;
+  const isMoving = len > 0;
 
-    const targetAngle = Math.atan2(moveX, moveZ);
-    const diff = targetAngle - group.rotation.y;
-    group.rotation.y += diff * 0.2;
+  if (isMoving) {
+    const nx = (moveX / len) * speed * delta;
+    const nz = (moveZ / len) * speed * delta;
+
+    // X軸・Z軸を独立して試す（壁ずりを可能にする）
+    const prevX = group.position.x;
+    group.position.x += nx;
+    if (isColliding(group.position.x, group.position.y, group.position.z, collidableBoxes)) {
+      group.position.x = prevX;
+    }
+
+    const prevZ = group.position.z;
+    group.position.z += nz;
+    if (isColliding(group.position.x, group.position.y, group.position.z, collidableBoxes)) {
+      group.position.z = prevZ;
+    }
+
+    // 移動した場合のみキャラクター向きを更新
+    const movedX = group.position.x - prevX;
+    const movedZ = group.position.z - prevZ;
+    if (Math.abs(movedX) + Math.abs(movedZ) > 0.0001) {
+      const targetAngle = Math.atan2(moveX, moveZ);
+      group.rotation.y += (targetAngle - group.rotation.y) * 0.2;
+    }
   }
 
-  if (jump && isOnGround) {
-    velY = JUMP_VELOCITY;
-    isOnGround = false;
+  // ジャンプ・重力
+  if (jump && onGround) {
+    velY = JUMP_VEL;
+    onGround = false;
   }
 
   velY += GRAVITY * delta;
   group.position.y += velY * delta;
 
-  if (group.position.y <= GROUND_Y) {
-    group.position.y = GROUND_Y;
+  // 地形追従（getTerrainHeightで現在位置の地面高さを取得）
+  const groundY = getTerrainHeight(group.position.x, group.position.z);
+  if (group.position.y <= groundY) {
+    group.position.y = groundY;
     velY = 0;
-    isOnGround = true;
+    onGround = true;
   }
 
-  const isMoving = len > 0;
+  // 歩行アニメ
   if (isMoving) {
     animTime += delta * speed * 2.5;
     const swing = Math.sin(animTime) * 0.6;
-    armL.rotation.x = swing;
+    armL.rotation.x =  swing;
     armR.rotation.x = -swing;
     legL.rotation.x = -swing;
-    legR.rotation.x = swing;
+    legR.rotation.x =  swing;
   } else {
     armL.rotation.x *= 0.8;
     armR.rotation.x *= 0.8;

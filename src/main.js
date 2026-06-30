@@ -26,7 +26,7 @@ const camera = new THREE.PerspectiveCamera(
 );
 
 CameraController.create(camera, canvas);
-SceneBuilder.create(scene);
+const { collidableBoxes } = SceneBuilder.create(scene);
 Player.create(scene);
 
 window.addEventListener('resize', () => {
@@ -44,7 +44,7 @@ function loop() {
   const delta = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
 
-  const playerPos = Player.update(delta, keys, CameraController.getYaw());
+  const playerPos = Player.update(delta, keys, CameraController.getYaw(), collidableBoxes);
   CameraController.update(playerPos);
 
   renderer.render(scene, camera);
