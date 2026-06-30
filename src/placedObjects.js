@@ -565,6 +565,23 @@ export function isPlaceable(itemId) {
   return !!DEFS[itemId];
 }
 
+// 最寄りのベッド位置を返す（なければ null）
+export function getNearestBedPosition(fromPos) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const obj of placed) {
+    if (!obj.alive || obj.itemId !== 'bed') continue;
+    const dx = obj.position.x - fromPos.x;
+    const dz = obj.position.z - fromPos.z;
+    const d = Math.hypot(dx, dz);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = obj.position.clone();
+    }
+  }
+  return nearest;
+}
+
 // スタック可能アイテムの積み上げ先 y を返す。スタック不要なら null。
 function getStackY(x, z, itemId) {
   const def = DEFS[itemId];
@@ -611,6 +628,32 @@ function buildCampfire() {
 // ─── モジュール状態 ────────────────────────────────
 let _scene = null;
 const placed = [];   // 設置済みオブジェクト一覧
+let _placedBoxCache = [];
+let _placedBoxDirty = true;
+
+function _invalidatePlacedBoxes() { _placedBoxDirty = true; }
+
+export function getPlacedBoxes() {
+  if (!_placedBoxDirty) return _placedBoxCache;
+  _placedBoxCache = [];
+  for (const obj of placed) {
+    if (!obj.alive) continue;
+    const s = getSize(obj.itemId);
+    const p = obj.position;
+    const rot = obj.rotation ?? 0;
+    // 回転を考慮したAABB（包囲軸に整列）
+    const cosR = Math.abs(Math.cos(rot));
+    const sinR = Math.abs(Math.sin(rot));
+    const halfW = (s.w * cosR + s.d * sinR) / 2;
+    const halfD = (s.w * sinR + s.d * cosR) / 2;
+    _placedBoxCache.push(new THREE.Box3(
+      new THREE.Vector3(p.x - halfW, p.y, p.z - halfD),
+      new THREE.Vector3(p.x + halfW, p.y + s.h, p.z + halfD)
+    ));
+  }
+  _placedBoxDirty = false;
+  return _placedBoxCache;
+}
 let placementMode = false;
 let placementItemId = null;
 let ghostGroup = null;
@@ -939,6 +982,7 @@ function confirmPlacement(x, z, facing, preY) {
 
   if (def.onPlace) def.onPlace(obj, _scene);
   placed.push(obj);
+  _invalidatePlacedBoxes();
 
   // 在庫が残っていれば設置モードを継続、なくなれば終了
   if (Inventory.has(placementItemId)) {
@@ -1136,6 +1180,7 @@ function pickUp(obj) {
 
   if (obj.state !== 'burning') {
     Inventory.add(obj.itemId, 1);
+    _invalidatePlacedBoxes();
     toast(`📦 ${def?.name || obj.itemId} を拾った`);
   } else {
     toast('焚き火は拾えない（消えるまで待とう）');

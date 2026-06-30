@@ -9,6 +9,7 @@ const GRAVITY     = -20;
 const TURN_SPEED  = 12;
 const DODGE_SPEED = 12;
 const DODGE_DURATION = 0.28;
+const STEP_HEIGHT = 0.55; // この高さ以下の設置物は自動でよじ登れる
 
 const WATER_LEVEL    = 0.0;   // 水面 y 座標
 const WAIST_HEIGHT   = 0.88;  // 腰の高さ（地面からm）
@@ -122,15 +123,23 @@ export function getFacing() {
   return group ? group.rotation.y : 0;
 }
 
+export function getPosition() {
+  return group ? group.position.clone() : new THREE.Vector3(0, 0, 0);
+}
+
 export function warpTo(pos) {
   if (!group) return;
   group.position.set(pos.x, pos.y + 0.15, pos.z);
   velY = 0;
 }
 
-export function respawn() {
+// spawnPos が指定されればそこで復活、なければ原点
+export function respawn(spawnPos) {
   if (!group) return;
-  group.position.set(0, getTerrainHeight(0, 0), 0);
+  const px = spawnPos ? spawnPos.x : 0;
+  const py = spawnPos ? spawnPos.y + 0.20 : getTerrainHeight(0, 0);
+  const pz = spawnPos ? spawnPos.z : 0;
+  group.position.set(px, py, pz);
   group.rotation.y = Math.PI;
   velY = 0;
   onGround = true;
@@ -173,40 +182,69 @@ export function isDodging() {
   return dodgeTimer > 0;
 }
 
-function isColliding(px, py, pz, collidableBoxes) {
+function isColliding(px, py, pz, boxes1, boxes2) {
   _center.set(px, py + PLAYER_H / 2, pz);
   _playerBox.setFromCenterAndSize(_center, _size);
-  for (const box of collidableBoxes) {
+  for (const box of boxes1) {
     if (_playerBox.intersectsBox(box)) return true;
+  }
+  if (boxes2) {
+    for (const box of boxes2) {
+      if (_playerBox.intersectsBox(box)) return true;
+    }
   }
   return false;
 }
 
-function moveWithCollision(dx, dz, collidableBoxes) {
-  const prevX = group.position.x;
-  group.position.x += dx;
-  if (isColliding(group.position.x, group.position.y, group.position.z, collidableBoxes)) {
-    group.position.x = prevX;
-  }
+function moveWithCollision(dx, dz, boxes1, boxes2) {
+  const tryAxis = (axis, delta) => {
+    const prev = axis === 'x' ? group.position.x : group.position.z;
+    if (axis === 'x') group.position.x += delta;
+    else group.position.z += delta;
 
-  const prevZ = group.position.z;
-  group.position.z += dz;
-  if (isColliding(group.position.x, group.position.y, group.position.z, collidableBoxes)) {
-    group.position.z = prevZ;
-  }
+    if (isColliding(group.position.x, group.position.y, group.position.z, boxes1, boxes2)) {
+      // 段差を越えられるか試す（設置物に乗るため）
+      const stepY = group.position.y + STEP_HEIGHT;
+      if (!isColliding(group.position.x, stepY, group.position.z, boxes1, boxes2)) {
+        group.position.y = stepY;
+        velY = 0;
+      } else {
+        if (axis === 'x') group.position.x = prev;
+        else group.position.z = prev;
+      }
+    }
+  };
+  tryAxis('x', dx);
+  tryAxis('z', dz);
 }
 
-function getColliderGroundHeight(x, z, terrainCollider) {
-  if (!terrainCollider) return getTerrainHeight(x, z);
+function getColliderGroundHeight(x, z, terrainCollider, placedBoxes) {
+  let h;
+  if (terrainCollider) {
+    // プレイヤー直上から真下へレイを飛ばし、BVHで高速に地面/静的メッシュを取得
+    _rayOrigin.set(x, 200, z);
+    _raycaster.set(_rayOrigin, _down);
+    _raycaster.firstHitOnly = true;
+    _raycaster.far = 500;
+    const hit = _raycaster.intersectObject(terrainCollider, false)[0];
+    h = hit ? hit.point.y : getTerrainHeight(x, z);
+  } else {
+    h = getTerrainHeight(x, z);
+  }
 
-  // プレイヤー直上から真下へレイを飛ばし、BVHで高速に地面/静的メッシュを取得
-  _rayOrigin.set(x, 200, z);
-  _raycaster.set(_rayOrigin, _down);
-  _raycaster.firstHitOnly = true;
-  _raycaster.far = 500;
-
-  const hit = _raycaster.intersectObject(terrainCollider, false)[0];
-  return hit ? hit.point.y : getTerrainHeight(x, z);
+  // 設置物の上面もグラウンドとして認識（乗り上げ判定）
+  if (placedBoxes) {
+    const py = group.position.y;
+    for (const box of placedBoxes) {
+      if (x >= box.min.x && x <= box.max.x && z >= box.min.z && z <= box.max.z) {
+        const top = box.max.y;
+        if (top > h && py + 0.15 >= top) {
+          h = top;
+        }
+      }
+    }
+  }
+  return h;
 }
 
 export function create(scene) {
@@ -361,7 +399,7 @@ export function create(scene) {
   return group;
 }
 
-export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCollider) {
+export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCollider, placedBoxes) {
   const { forward, backward, jump, sprint } = inputState;
 
   // 水泳判定
@@ -382,12 +420,12 @@ export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCol
   if (isMoving) {
     const nx = (moveX / len) * baseSpeed * delta;
     const nz = (moveZ / len) * baseSpeed * delta;
-    moveWithCollision(nx, nz, collidableBoxes);
+    moveWithCollision(nx, nz, collidableBoxes, placedBoxes);
   }
 
   if (dodgeTimer > 0) {
     dodgeTimer = Math.max(0, dodgeTimer - delta);
-    moveWithCollision(dodgeVelX * delta, dodgeVelZ * delta, collidableBoxes);
+    moveWithCollision(dodgeVelX * delta, dodgeVelZ * delta, collidableBoxes, placedBoxes);
   }
 
   const facingAngle = cameraYaw + Math.PI;
@@ -415,7 +453,7 @@ export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCol
 
   group.position.y += velY * delta;
 
-  const groundY = getColliderGroundHeight(group.position.x, group.position.z, terrainCollider);
+  const groundY = getColliderGroundHeight(group.position.x, group.position.z, terrainCollider, placedBoxes);
   if (group.position.y <= groundY) {
     group.position.y = groundY;
     velY = 0;

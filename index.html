@@ -10,18 +10,18 @@
     canvas { display: block; width: 100vw; height: 100vh; }
     #ui {
       position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
+      bottom: 16px;
+      left: 16px;
       background: rgba(0, 0, 0, 0.55);
       color: #fff;
       font-family: monospace;
-      font-size: 13px;
-      padding: 10px 18px;
+      font-size: 11px;
+      padding: 8px 12px;
       border-radius: 8px;
       pointer-events: none;
       display: flex;
-      gap: 20px;
+      flex-direction: column;
+      gap: 3px;
     }
     #ui span { white-space: nowrap; }
     #title {
@@ -485,8 +485,8 @@
   <div id="death-overlay">
     <div id="death-box">
       <h2>死亡しました</h2>
-      <p>体力が尽きました。空腹度が0になると体力が減り続けます。</p>
-      <button id="respawn-btn">鍛冶場でリスポーン</button>
+      <p>体力が尽きました。ベッドがあれば最寄りのベッドで復活できます。</p>
+      <button id="respawn-btn">リスポーン</button>
     </div>
   </div>
   <div id="status-overlay">
@@ -508,7 +508,8 @@
     <span>Space: ジャンプ</span>
     <span>Shift: ダッシュ（スタミナ消費）</span>
     <span>Q: 回避</span>
-    <span>F: 攻撃/採取/設置確定</span>
+    <span>F: 攻撃/採取/設置確定（弓装備時：長押しで狙い→離すと発射）</span>
+    <span>T: アイテムを投げる</span>
     <span>E: 設置物を拾う/使う</span>
     <span>I: アイテムボックス (置くボタン→設置)</span>
     <span>G: 簡易クラフト</span>

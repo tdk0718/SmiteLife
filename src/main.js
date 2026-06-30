@@ -16,6 +16,8 @@ import * as Projectile from './projectile.js';
 
 const crosshairEl = document.getElementById('crosshair');
 let prevPlacementMode = false;
+let isBowAiming = false;
+let prevFPMode   = false;
 
 const DODGE_STAMINA = 25;
 
@@ -82,8 +84,11 @@ const tamedHudEl = (() => {
 const respawnBtn = document.getElementById('respawn-btn');
 if (respawnBtn) {
   respawnBtn.addEventListener('click', () => {
+    isBowAiming = false;
     Stats.respawn();
-    Player.respawn();
+    const bedPos = PlacedObjects.getNearestBedPosition(Player.getPosition());
+    Player.respawn(bedPos); // ベッドがあればそこで、なければ原点
+    if (bedPos) Inventory.showPickup('🛏 ベッドで復活した');
   });
 }
 
@@ -124,14 +129,28 @@ function loop() {
   if (consumePress('craft'))     Crafting.toggle();
   if (consumePress('useFood'))   Inventory.consumeFirstEdible();
 
-  const attackPressed   = consumePress('attack');
+  const dead     = Stats.isDead();
+  const equipped = Inventory.getEquipped();
+
+  // ── 弓の狙い判定（Fキー長押し → 一人称狙い、離すと発射）──────────────
+  let bowFireTriggered = false;
+  if (equipped === 'bow' && !dead && !PlacedObjects.isInPlacementMode()) {
+    if (keys.attack) {
+      if (!isBowAiming) isBowAiming = true;
+    } else if (isBowAiming) {
+      isBowAiming = false;
+      bowFireTriggered = true;
+    }
+  } else if (isBowAiming) {
+    isBowAiming = false; // 弓を外したか死亡 → 強制解除
+  }
+
+  const attackPressed   = consumePress('attack');   // justPressed を消費（弓狙い中も）
   const interactPressed = consumePress('interact');
   const throwPressed    = consumePress('throw');
   const qPressed        = consumePress('dodge');
   const dodgePressed    = qPressed;
   const cancelPressed   = qPressed;
-
-  const dead = Stats.isDead();
 
   const moving    = !dead && (keys.forward || keys.backward);
   const sprinting = moving && keys.sprint && Stats.canSprint();
@@ -148,7 +167,8 @@ function loop() {
     }
   }
 
-  const playerPos = Player.update(delta, inputState, CameraController.getYaw(), world.collidableBoxes, world.terrainCollider);
+  const placedBoxes = PlacedObjects.getPlacedBoxes();
+  const playerPos = Player.update(delta, inputState, CameraController.getYaw(), world.collidableBoxes, world.terrainCollider, placedBoxes);
 
   Stats.setInvulnerable(Player.isDodging());
 
@@ -159,8 +179,7 @@ function loop() {
   enemies.update(delta, playerPos, world);
 
   // ── 投擲処理 ──────────────────────────────────────
-  if (!dead && throwPressed && !PlacedObjects.isInPlacementMode()) {
-    const equipped = Inventory.getEquipped();
+  if (!dead && throwPressed && !PlacedObjects.isInPlacementMode() && !isBowAiming) {
     const throwId  = pickThrowItem(equipped);
     if (throwId) {
       Inventory.remove(throwId, 1);
@@ -178,33 +197,41 @@ function loop() {
     enemies.damageEnemy(enemy, damage);
   }
 
-  // 設置モード切替に合わせてカメラ・クロスヘアを更新
+  // 設置モード切替 + 弓狙いモードを合わせた FP 管理
   const nowPlacement = PlacedObjects.isInPlacementMode();
-  if (nowPlacement !== prevPlacementMode) {
-    prevPlacementMode = nowPlacement;
-    CameraController.setPlacementFP(nowPlacement);
-    if (crosshairEl) crosshairEl.style.display = nowPlacement ? 'block' : 'none';
+  const needsFP = nowPlacement || isBowAiming;
+  if (needsFP !== prevFPMode) {
+    CameraController.setPlacementFP(needsFP);
+    prevFPMode = needsFP;
   }
-  if (nowPlacement && crosshairEl) {
-    const { snapped, valid } = PlacedObjects.getPlacementState();
-    crosshairEl.dataset.state = snapped ? 'snapped' : valid ? 'valid' : 'invalid';
+  // クロスヘア表示（設置モード or 弓狙いモード）
+  if (crosshairEl) {
+    crosshairEl.style.display = needsFP ? 'block' : 'none';
+    if (isBowAiming) {
+      crosshairEl.dataset.state = 'bow'; // 白色（デフォルト）
+    } else if (nowPlacement) {
+      const { snapped, valid } = PlacedObjects.getPlacementState();
+      crosshairEl.dataset.state = snapped ? 'snapped' : valid ? 'valid' : 'invalid';
+    }
   }
 
   const playerFacing  = Player.getFacing();
   const placementRay  = nowPlacement ? CameraController.getPlacementRay() : null;
   PlacedObjects.update(delta, playerPos, playerFacing, dead ? false : attackPressed, cancelPressed, placementRay, world.terrainCollider);
 
-  const hint = PlacedObjects.getInteractHint();
-  if (hintEl) hintEl.textContent = hint || '';
+  if (isBowAiming) {
+    if (hintEl) hintEl.textContent = '🏹 [F を離す] 矢を放つ';
+  } else {
+    const hint = PlacedObjects.getInteractHint();
+    if (hintEl) hintEl.textContent = hint || '';
+  }
 
-  const equipped = Inventory.getEquipped();
   const attackConsumed = !dead && PlacedObjects.tryInteract(
-    attackPressed, interactPressed, playerPos, playerFacing, equipped
+    attackPressed && !isBowAiming, interactPressed, playerPos, playerFacing, equipped
   );
 
-  // ── 弓での矢発射 ──────────────────────────────────
-  let bowShot = false;
-  if (!dead && attackPressed && !attackConsumed && equipped === 'bow' && !PlacedObjects.isInPlacementMode()) {
+  // ── 弓での矢発射（Fキーを離した瞬間）────────────────────────────
+  if (!dead && bowFireTriggered) {
     if (Inventory.has('arrow')) {
       Inventory.remove('arrow', 1);
       const origin = playerPos.clone().add(new THREE.Vector3(0, 1.5, 0));
@@ -213,11 +240,10 @@ function loop() {
     } else {
       Inventory.showPickup('🏹 矢がない！石と木で作ろう');
     }
-    bowShot = true;
   }
 
   if (!dead) {
-    Gather.update(delta, attackPressed && !attackConsumed && !bowShot, playerPos, world, enemies);
+    Gather.update(delta, attackPressed && !attackConsumed && !isBowAiming, playerPos, world, enemies);
   }
 
   // テイム動物 HUD 更新
