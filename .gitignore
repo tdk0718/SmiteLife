@@ -1,3 +1,12 @@
 node_modules/
 dist/
 .DS_Store
+SmiteLife_product/Temp/
+SmiteLife_product/Library/
+SmiteLife_product/Logs/
+SmiteLife_product/UserSettings/
+SmiteLife_product/obj/
+SmiteLife_product/*.csproj
+SmiteLife_product/*.sln
+SmiteLife_product/*.slnx
+SmiteLife_product/mono_crash.*.json

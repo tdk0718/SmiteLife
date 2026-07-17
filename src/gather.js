@@ -58,7 +58,13 @@ export function update(delta, attackPressed, playerPos, world, enemies) {
   if (!attackPressed || cooldown > 0 || Inventory.isOpen() || Stats.isDead()) return;
   if (!Stats.tryAttack()) { Inventory.showPickup('スタミナが足りない！'); return; }
 
-  Player.triggerAttack();
+  const equipped = Inventory.getEquipped();
+  const equippedItem = equipped ? Inventory.ITEMS[equipped] : null;
+  const attackBonus = equippedItem?.attackBonus || 0;
+  const isBarehanded = !equippedItem?.tool;
+
+  if (isBarehanded) Player.triggerPunch();
+  else Player.triggerAttack();
 
   const facing = Player.getFacing();
   const fx = Math.sin(facing);
@@ -93,10 +99,6 @@ export function update(delta, attackPressed, playerPos, world, enemies) {
     if (d >= 0 && d < bestDist) { bestDist = d; bestFish = fish; bestWolf = null; bestNode = null; }
   }
 
-  const equipped = Inventory.getEquipped();
-  const equippedItem = equipped ? Inventory.ITEMS[equipped] : null;
-  const attackBonus = equippedItem?.attackBonus || 0;
-
   if (bestFish) {
     cooldown = ATTACK_COOLDOWN;
     world._catchFish?.(bestFish);
@@ -115,7 +117,6 @@ export function update(delta, attackPressed, playerPos, world, enemies) {
   const isTree = nodeType === 'wood';
   const isRock = ['stone','iron_rock','copper_rock','coal_rock','flint_rock'].includes(nodeType);
   let dmg = 1, cdMult = 1.0;
-  const isBarehanded = !equippedItem?.tool;
   if (equippedItem?.tool) {
     if (equippedItem.category === 'tree' && isTree) {
       dmg = equippedItem.gatherMult || 2; cdMult = 0.38;

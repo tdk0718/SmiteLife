@@ -30,7 +30,7 @@ export function applySlowEffect(seconds) { slowTimer = seconds; }
 export function getSpeedMult() { return slowTimer > 0 ? 0.30 : 1.0; }
 
 let hpFill, hungerFill, staminaFill, hpText, hungerText, staminaText;
-let overlayEl;
+let overlayEl, damageFlashEl;
 
 export function init() {
   hpFill      = document.getElementById('hp-fill');
@@ -40,7 +40,21 @@ export function init() {
   hungerText  = document.getElementById('hunger-text');
   staminaText = document.getElementById('stamina-text');
   overlayEl   = document.getElementById('death-overlay');
+  damageFlashEl = document.getElementById('damage-flash');
   render();
+}
+
+// ダメージを受けた時に画面全体を一瞬赤くフラッシュさせる
+// intensity: 0〜1（大ダメージほど濃く）
+function flashDamage(intensity = 1) {
+  if (!damageFlashEl) return;
+  const peak = 0.5 + 0.5 * Math.max(0, Math.min(1, intensity));
+  // いったん瞬時に赤くしてから、フェードアウト
+  damageFlashEl.style.transition = 'none';
+  damageFlashEl.style.opacity = String(peak);
+  void damageFlashEl.offsetWidth; // リフローを強制してtransitionを効かせる
+  damageFlashEl.style.transition = 'opacity 0.5s ease-out';
+  damageFlashEl.style.opacity = '0';
 }
 
 export function isDead() { return state.dead; }
@@ -50,6 +64,16 @@ export function snapshot() {
     hp: state.hp, maxHp: state.maxHp, hunger: state.hunger,
     stamina: state.stamina, defense: state.defense, dead: state.dead,
   };
+}
+
+export function serialize() {
+  return { hp: state.hp, maxHp: state.maxHp, hunger: state.hunger };
+}
+export function deserialize({ hp, maxHp, hunger } = {}) {
+  if (maxHp  !== undefined) state.maxHp  = maxHp;
+  if (hp     !== undefined) state.hp     = Math.min(hp, state.maxHp);
+  if (hunger !== undefined) state.hunger = Math.min(hunger, HUNGER_MAX);
+  render();
 }
 
 // --- レベルアップ連携 ---
@@ -95,6 +119,7 @@ export function damage(amount) {
   if (state.dead || state.invulnerable || amount <= 0) return;
   const eff = Math.max(1, amount - state.defense); // 防御で軽減（最低1）
   state.hp = Math.max(0, state.hp - eff);
+  flashDamage(Math.min(1, eff / 25)); // 画面を赤くフラッシュ
   if (state.hp <= 0) { state.hp = 0; state.dead = true; }
   render();
 }

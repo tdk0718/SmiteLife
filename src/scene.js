@@ -14,23 +14,74 @@ const VIEW_DISTANCE = 2;
 
 // 頂点カラー有効（高さ・勾配で色付け）
 const groundMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8B5E3C });
-const leafMat  = new THREE.MeshLambertMaterial({ color: 0x3a7d44 });
 
-// 岩タイプ別マテリアル
+// ── 樹木マテリアル（樹種ごと） ─────────────────────
+const barkMats = {
+  oak:    new THREE.MeshLambertMaterial({ color: 0x7a5230 }),
+  pine:   new THREE.MeshLambertMaterial({ color: 0x5e4226 }),
+  birch:  new THREE.MeshLambertMaterial({ color: 0xd8d2c2 }),
+  poplar: new THREE.MeshLambertMaterial({ color: 0x8a6a44 }),
+};
+const birchBandMat = new THREE.MeshLambertMaterial({ color: 0x3a3630 });
+const leafMats = {
+  oak: [
+    new THREE.MeshLambertMaterial({ color: 0x3f7d3a, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x4c8a3e, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x35702f, flatShading: true }),
+  ],
+  pine: [
+    new THREE.MeshLambertMaterial({ color: 0x2c5a34, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x255030, flatShading: true }),
+  ],
+  birch: [
+    new THREE.MeshLambertMaterial({ color: 0x6aa848, flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: 0x7ab652, flatShading: true }),
+  ],
+  poplar: [
+    new THREE.MeshLambertMaterial({ color: 0x4a8a40, flatShading: true }),
+  ],
+};
+
+// 岩タイプ別マテリアル（明暗3階調 × フラットシェーディングで岩肌感を出す）
+function shadedMats(hex, deltas = [-0.05, 0, 0.05]) {
+  return deltas.map((d) => {
+    const c = new THREE.Color(hex);
+    c.offsetHSL(0, 0, d);
+    return new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+  });
+}
 const rockMaterials = {
-  stone:       new THREE.MeshLambertMaterial({ color: 0x888888 }),
-  iron_rock:   new THREE.MeshLambertMaterial({ color: 0x7a6058 }),
-  copper_rock: new THREE.MeshLambertMaterial({ color: 0x7a6540 }),
-  coal_rock:   new THREE.MeshLambertMaterial({ color: 0x252525 }),
-  flint_rock:  new THREE.MeshLambertMaterial({ color: 0xb8b0a0 }),
+  stone:       shadedMats(0x888888),
+  iron_rock:   shadedMats(0x7a6058),
+  copper_rock: shadedMats(0x7a6540),
+  coal_rock:   shadedMats(0x252525, [-0.02, 0, 0.04]),
+  flint_rock:  shadedMats(0xb8b0a0),
 };
 const veinMaterials = {
-  iron_rock:   new THREE.MeshLambertMaterial({ color: 0xc45a25 }),
-  copper_rock: new THREE.MeshLambertMaterial({ color: 0x4db07a }),
-  coal_rock:   new THREE.MeshLambertMaterial({ color: 0x111111 }),
-  flint_rock:  new THREE.MeshLambertMaterial({ color: 0xddd8c8 }),
+  iron_rock:   new THREE.MeshLambertMaterial({ color: 0xc45a25, flatShading: true }),
+  copper_rock: new THREE.MeshLambertMaterial({ color: 0x4db07a, flatShading: true }),
+  coal_rock:   new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true }),
+  flint_rock:  new THREE.MeshLambertMaterial({ color: 0xddd8c8, flatShading: true }),
 };
+const mossMat = new THREE.MeshLambertMaterial({ color: 0x4a7a35 });
+
+// ジオメトリの頂点をラジアル方向にランダム変位させて有機的な凹凸を作る。
+// 位置ハッシュで乱数を決めるため、重複頂点（非インデックス形状）も同じ量だけ動き
+// 面が裂けない。
+function displaceVertices(geo, amount, rng) {
+  const pos = geo.attributes.position;
+  const seed = rng() * 100;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed) * 43758.5453;
+    const n = (h - Math.floor(h)) - 0.5;
+    const f = 1 + n * 2 * amount;
+    pos.setXYZ(i, x * f, y * f, z * f);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
 
 function disposeMeshGeometry(object) {
   object.traverse((child) => {
@@ -90,6 +141,18 @@ function heightToRGB(h) {
   return [0.84, 0.84, 0.82]; // 雪/白岩
 }
 
+function smoothstep01(t) {
+  t = Math.min(1, Math.max(0, t));
+  return t * t * (3 - 2 * t);
+}
+
+// 平原マスク（0=通常地形、1=完全な平地）。
+// 低周波ノイズで広い平原地帯をワールド各地に作る。牛の生息地でもある。
+export function getPlainsFactor(x, z) {
+  const n = noise2D(x * 0.0032 + 173.3, z * 0.0032 - 89.7);
+  return smoothstep01((n - 0.02) / 0.38);
+}
+
 // 地形の高さ関数 — simplex-noise による多重オクターブ FBM
 export function getTerrainHeight(x, z) {
   const d = Math.sqrt(x * x + z * z);
@@ -106,6 +169,13 @@ export function getTerrainHeight(x, z) {
 
   h += 1.5;
   h = Math.max(-2.5, h);
+
+  // 平原マスク: マスクが強い場所は起伏をならして広い平地にする
+  const plains = getPlainsFactor(x, z);
+  if (plains > 0.001) {
+    const flatH = 2.4 + noise2D(x * 0.012, z * 0.012) * 0.5; // なだらかな草原
+    h = h * (1 - plains) + flatH * plains;
+  }
 
   const spawnPlateau = (1.0 - blend) * 2.2;
   return h * blend + spawnPlateau;
@@ -144,10 +214,184 @@ function chunkKey(cx, cz) {
 }
 
 function isPlacementAllowed(x, z) {
-  // スポーン地点と鍛冶屋の周辺には自然物を置かない
+  // スポーン地点とデフォルトハウスの敷地（柵の内外）には自然物を置かない
   if (Math.hypot(x, z) < 8) return false;
-  if (x > -8 && x < 8 && z > -24 && z < -8) return false;
+  if (x > -7.5 && x < 7.5 && z > -19.5 && z < -2.5) return false;
   return true;
+}
+
+// ── 樹木ビルダー（樹種ごとに形状が異なる） ─────────────
+function pickLeafMat(kind, rng) {
+  const mats = leafMats[kind];
+  return mats[Math.floor(rng() * mats.length)];
+}
+
+// 幹の根本の広がり（根張り）を追加する共通ヘルパー
+function addRootFlare(g, s, baseR, mat, rng) {
+  const flareGeo = new THREE.CylinderGeometry(baseR * 0.85, baseR * 1.75, 0.28 * s, 7);
+  displaceVertices(flareGeo, 0.10, rng);
+  const flare = new THREE.Mesh(flareGeo, mat);
+  flare.position.y = 0.14 * s;
+  flare.receiveShadow = true;
+  g.add(flare);
+}
+
+// 広葉樹（オーク）: 太い幹 + 枝 + 不定形の樹冠
+function buildOak(g, s, rng) {
+  const trunkGeo = new THREE.CylinderGeometry(0.14 + 0.08 * s, 0.24 + 0.14 * s, 2.2 * s, 7);
+  displaceVertices(trunkGeo, 0.05, rng);
+  const trunk = new THREE.Mesh(trunkGeo, barkMats.oak);
+  trunk.position.y = 1.1 * s;
+  trunk.rotation.z = (rng() - 0.5) * 0.10; // わずかな傾き
+  trunk.castShadow = trunk.receiveShadow = true;
+  g.add(trunk);
+  addRootFlare(g, s, 0.24 + 0.14 * s, barkMats.oak, rng);
+
+  // 枝（1〜2本）
+  const branchCount = 1 + Math.floor(rng() * 2);
+  for (let i = 0; i < branchCount; i++) {
+    const branch = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05 * s, 0.09 * s, 1.1 * s, 5),
+      barkMats.oak
+    );
+    const a = rng() * Math.PI * 2;
+    branch.position.set(Math.cos(a) * 0.45 * s, (1.7 + rng() * 0.5) * s, Math.sin(a) * 0.45 * s);
+    branch.rotation.set(Math.sin(a) * 1.0, 0, Math.cos(a) * 1.0);
+    branch.castShadow = true;
+    g.add(branch);
+  }
+
+  // 樹冠: 不揃いな多面体ブロブを重ねる
+  const blobCount = 3 + Math.floor(rng() * 3);
+  for (let i = 0; i < blobCount; i++) {
+    const r = (0.75 + rng() * 0.55) * s;
+    const blobGeo = new THREE.IcosahedronGeometry(r, 1);
+    displaceVertices(blobGeo, 0.16, rng); // 葉のもこもこ感
+    const blob = new THREE.Mesh(blobGeo, pickLeafMat('oak', rng));
+    blob.position.set(
+      (rng() - 0.5) * 1.5 * s,
+      (2.7 + rng() * 0.9) * s,
+      (rng() - 0.5) * 1.5 * s
+    );
+    blob.scale.y = 0.75 + rng() * 0.2;
+    blob.rotation.y = rng() * Math.PI;
+    blob.castShadow = i < 2; // 影は代表ブロブのみ（負荷軽減）
+    g.add(blob);
+  }
+  return trunk;
+}
+
+// 針葉樹（松）: 高い幹 + 円錐を段重ね
+function buildPine(g, s, rng) {
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.10 + 0.05 * s, 0.18 + 0.10 * s, 2.8 * s, 7),
+    barkMats.pine
+  );
+  trunk.position.y = 1.4 * s;
+  trunk.castShadow = trunk.receiveShadow = true;
+  g.add(trunk);
+  addRootFlare(g, s, 0.18 + 0.10 * s, barkMats.pine, rng);
+
+  const tiers = 3 + Math.floor(rng() * 2);
+  const mat = pickLeafMat('pine', rng);
+  for (let i = 0; i < tiers; i++) {
+    const t = i / (tiers - 1); // 0=下段, 1=最上段
+    const r = (1.35 - t * 0.85) * s * (0.9 + rng() * 0.2);
+    const h = (1.1 - t * 0.3) * s;
+    const coneGeo = new THREE.ConeGeometry(r, h, 9);
+    displaceVertices(coneGeo, 0.07, rng); // 枝先の不揃い感
+    const cone = new THREE.Mesh(coneGeo, mat);
+    cone.position.set((rng() - 0.5) * 0.1 * s, (1.7 + i * 0.85) * s, (rng() - 0.5) * 0.1 * s);
+    cone.rotation.y = rng() * Math.PI;
+    cone.castShadow = i === 0;
+    g.add(cone);
+  }
+  return trunk;
+}
+
+// 白樺: 細い白い幹（黒い模様入り） + 小ぶりの明るい樹冠
+function buildBirch(g, s, rng) {
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.07 + 0.04 * s, 0.11 + 0.06 * s, 2.7 * s, 7),
+    barkMats.birch
+  );
+  trunk.position.y = 1.35 * s;
+  trunk.rotation.z = (rng() - 0.5) * 0.08;
+  trunk.castShadow = trunk.receiveShadow = true;
+  g.add(trunk);
+  addRootFlare(g, s, 0.11 + 0.06 * s, barkMats.birch, rng);
+
+  // 幹の黒い横縞
+  for (let i = 0; i < 3; i++) {
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(0.20 * s + 0.05, 0.06 * s, 0.02),
+      birchBandMat
+    );
+    const a = rng() * Math.PI * 2;
+    const bandY = (0.5 + rng() * 1.7) * s;
+    const br = 0.10 + 0.05 * s;
+    band.position.set(Math.cos(a) * br, bandY, Math.sin(a) * br);
+    band.rotation.y = -a + Math.PI / 2;
+    g.add(band);
+  }
+
+  const blobCount = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < blobCount; i++) {
+    const r = (0.55 + rng() * 0.35) * s;
+    const blobGeo = new THREE.IcosahedronGeometry(r, 1);
+    displaceVertices(blobGeo, 0.14, rng);
+    const blob = new THREE.Mesh(blobGeo, pickLeafMat('birch', rng));
+    blob.position.set((rng() - 0.5) * 0.8 * s, (2.6 + rng() * 0.7) * s, (rng() - 0.5) * 0.8 * s);
+    blob.scale.y = 1.05 + rng() * 0.25;
+    blob.castShadow = i === 0;
+    g.add(blob);
+  }
+  return trunk;
+}
+
+// ポプラ: まっすぐな幹 + 縦長で細い樹冠
+function buildPoplar(g, s, rng) {
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09 + 0.05 * s, 0.15 + 0.08 * s, 1.9 * s, 7),
+    barkMats.poplar
+  );
+  trunk.position.y = 0.95 * s;
+  trunk.castShadow = trunk.receiveShadow = true;
+  g.add(trunk);
+  addRootFlare(g, s, 0.15 + 0.08 * s, barkMats.poplar, rng);
+
+  const mat = pickLeafMat('poplar', rng);
+  const crownGeo = new THREE.IcosahedronGeometry(0.85 * s, 1);
+  displaceVertices(crownGeo, 0.12, rng);
+  const crown = new THREE.Mesh(crownGeo, mat);
+  crown.position.y = 2.6 * s;
+  crown.scale.set(0.62, 1.85 + rng() * 0.3, 0.62);
+  crown.castShadow = true;
+  g.add(crown);
+  const crown2Geo = new THREE.IcosahedronGeometry(0.55 * s, 1);
+  displaceVertices(crown2Geo, 0.12, rng);
+  const crown2 = new THREE.Mesh(crown2Geo, mat);
+  crown2.position.y = 1.65 * s;
+  crown2.scale.set(0.75, 1.0, 0.75);
+  g.add(crown2);
+  return trunk;
+}
+
+// 樹種の出現比率: オーク40% / 松30% / 白樺20% / ポプラ10%
+const TREE_BUILDERS = [
+  [0.40, buildOak],
+  [0.30, buildPine],
+  [0.20, buildBirch],
+  [0.10, buildPoplar],
+];
+
+function pickTreeBuilder(rng) {
+  let r = rng();
+  for (const [w, fn] of TREE_BUILDERS) {
+    r -= w;
+    if (r <= 0) return fn;
+  }
+  return buildOak;
 }
 
 // 採取可能な素材ノードを表す（木 or 岩）
@@ -159,20 +403,11 @@ function addTree(parent, x, z, rng, id) {
 
   const nodeGroup = new THREE.Group();
   nodeGroup.position.set(x, y, z);
+  nodeGroup.rotation.y = rng() * Math.PI * 2;
 
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12 + 0.10 * heightScale, 0.18 + 0.14 * heightScale, 2 * heightScale, 8),
-    trunkMat
-  );
-  trunk.position.set(0, heightScale, 0);
-  trunk.castShadow = true;
-  trunk.receiveShadow = true;
+  const builder = pickTreeBuilder(rng);
+  const trunk = builder(nodeGroup, heightScale, rng);
 
-  const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.2 * heightScale, 8, 6), leafMat);
-  leaves.position.set(0, 3.0 * heightScale, 0);
-  leaves.castShadow = true;
-
-  nodeGroup.add(trunk, leaves);
   parent.add(nodeGroup);
 
   const hp = Math.max(1, Math.round(3 * heightScale));
@@ -199,45 +434,62 @@ function addRock(parent, x, z, rng, id) {
   const rockType = ROCK_TYPE_DIST[Math.floor(rng() * ROCK_TYPE_DIST.length)];
   const size = randomRange(0.35, 2.00, rng); // 小石〜巨岩
 
-  let geo;
-  if (rockType === 'flint_rock') {
-    geo = new THREE.IcosahedronGeometry(size, 0); // 鋭角的
-  } else if (rockType === 'coal_rock') {
-    geo = new THREE.BoxGeometry(size * 1.4, size * 0.9, size * 1.2); // 塊状
-  } else {
-    geo = rng() > 0.5
-      ? new THREE.IcosahedronGeometry(size, 0)
-      : new THREE.SphereGeometry(size * 0.9, 5, 4);
-  }
-
   const nodeGroup = new THREE.Group();
   nodeGroup.position.set(x, y, z);
+  nodeGroup.rotation.y = rng() * Math.PI * 2;
 
-  const mat = rockMaterials[rockType];
-  const rock = new THREE.Mesh(geo, mat);
-  rock.position.set(0, size * 0.35, 0);
-  rock.rotation.set(randomRange(0, Math.PI, rng), randomRange(0, Math.PI, rng), randomRange(0, Math.PI, rng));
+  const mats = rockMaterials[rockType];
+  const mat = mats[Math.floor(rng() * mats.length)];
+
+  // 本体: 凹凸をつけた多面体（火打石はより鋭角的）。下部は地面に埋める。
+  const mainGeo = new THREE.IcosahedronGeometry(size, 1);
+  displaceVertices(mainGeo, rockType === 'flint_rock' ? 0.34 : 0.22, rng);
+  const rock = new THREE.Mesh(mainGeo, mat);
+  rock.scale.set(1, 0.62 + rng() * 0.35, 0.75 + rng() * 0.4);
+  rock.position.y = size * 0.30;
   rock.castShadow = true;
   rock.receiveShadow = true;
   nodeGroup.add(rock);
 
-  // 鉱石タイプには鉱脈の模様を追加
+  // 根本に転がる小石（1〜2個）
+  const sideCount = 1 + Math.floor(rng() * 2);
+  for (let i = 0; i < sideCount; i++) {
+    const sr = size * (0.20 + rng() * 0.20);
+    const sGeo = new THREE.IcosahedronGeometry(sr, 1);
+    displaceVertices(sGeo, 0.25, rng);
+    const side = new THREE.Mesh(sGeo, mats[Math.floor(rng() * mats.length)]);
+    const sa = rng() * Math.PI * 2;
+    side.position.set(Math.cos(sa) * size * 0.95, sr * 0.35, Math.sin(sa) * size * 0.95);
+    side.scale.y = 0.7;
+    side.receiveShadow = true;
+    nodeGroup.add(side);
+  }
+
+  // 鉱石タイプは表面に埋まった鉱脈の塊を散らす
   const veinMat = veinMaterials[rockType];
   if (veinMat) {
-    const vs = size * 0.38;
-    const veinGeo = rockType === 'flint_rock'
-      ? new THREE.BoxGeometry(vs, vs * 0.4, vs * 0.6)
-      : new THREE.IcosahedronGeometry(vs, 0);
-    const vein = new THREE.Mesh(veinGeo, veinMat);
-    vein.position.set(size * 0.2, size * 0.55, size * 0.1);
-    vein.rotation.set(randomRange(0, Math.PI, rng), randomRange(0, Math.PI, rng), 0);
-    nodeGroup.add(vein);
+    const veinCount = 3 + Math.floor(rng() * 3);
+    for (let i = 0; i < veinCount; i++) {
+      const vein = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(size * (0.12 + rng() * 0.08), 0),
+        veinMat
+      );
+      // 上半分の表面付近に配置（rockの子なので潰れ形状にも追従する）
+      const va = rng() * Math.PI * 2;
+      const vu = 0.15 + rng() * 0.75; // 上向き成分
+      const dir = new THREE.Vector3(Math.cos(va) * (1 - vu), vu, Math.sin(va) * (1 - vu)).normalize();
+      vein.position.copy(dir.multiplyScalar(size * 0.92));
+      vein.rotation.set(rng() * Math.PI, rng() * Math.PI, 0);
+      rock.add(vein);
+    }
+  }
 
-    // 2つ目の小さい鉱脈
-    const vein2 = new THREE.Mesh(new THREE.IcosahedronGeometry(vs * 0.6, 0), veinMat);
-    vein2.position.set(-size * 0.25, size * 0.4, size * 0.2);
-    vein2.rotation.set(randomRange(0, Math.PI, rng), randomRange(0, Math.PI, rng), 0);
-    nodeGroup.add(vein2);
+  // 草地の石には時々苔が生える
+  if (rockType === 'stone' && y > 0.35 && y < 9 && rng() < 0.45) {
+    const moss = new THREE.Mesh(new THREE.SphereGeometry(size * 0.55, 8, 6), mossMat);
+    moss.scale.set(1.15, 0.5, 1.0);
+    moss.position.y = size * 0.72;
+    rock.add(moss);
   }
 
   // 当たり判定は視覚サイズによらず小さなプロキシ球を使う
@@ -400,18 +652,20 @@ function createChunk(cx, cz, destroyedResourceIds) {
   const minX = cx * CHUNK_SIZE - CHUNK_SIZE / 2;
   const minZ = cz * CHUNK_SIZE - CHUNK_SIZE / 2;
 
-  const treeCount = 40 + Math.floor(rng() * 21); // 40〜60本
+  const treeCount = 90 + Math.floor(rng() * 46); // 90〜135本（現在の1.5倍）
   for (let i = 0; i < treeCount; i++) {
     const id = `${cx},${cz}:tree:${i}`;
     if (destroyedResourceIds.has(id)) continue;
     const x = minX + randomRange(4, CHUNK_SIZE - 4, rng);
     const z = minZ + randomRange(4, CHUNK_SIZE - 4, rng);
     if (!isPlacementAllowed(x, z)) continue;
+    // 平原では木をまばらにして開けた草原にする
+    if (getPlainsFactor(x, z) > 0.5 && rng() < 0.75) continue;
     const node = addTree(group, x, z, rng, id);
     if (node) resourceNodes.push(node);
   }
 
-  const rockCount = 24 + Math.floor(rng() * 17); // 24〜40個
+  const rockCount = 54 + Math.floor(rng() * 37); // 54〜90個（現在の1.5倍）
   for (let i = 0; i < rockCount; i++) {
     const id = `${cx},${cz}:rock:${i}`;
     if (destroyedResourceIds.has(id)) continue;
@@ -443,7 +697,7 @@ function createChunk(cx, cz, destroyedResourceIds) {
     }
   }
 
-  const mushCount = 4 + Math.floor(rng() * 9);
+  const mushCount = 9 + Math.floor(rng() * 19); // 9〜27本（現在の1.5倍）
   for (let i = 0; i < mushCount; i++) {
     const id = `${cx},${cz}:mush:${i}`;
     if (destroyedResourceIds.has(id)) continue;
@@ -592,6 +846,8 @@ export function create(scene) {
     chunks: new Map(),
     centerCx: null,
     centerCz: null,
+    sunLight: dirLight,
+    hemiLight: hemiLight,
     staticCollidableMeshes: [],
     collidableBoxes: [],
     resourceNodes: [],

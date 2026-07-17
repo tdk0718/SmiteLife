@@ -5,7 +5,7 @@ const GRAVITY    = -18;
 const BAIT_LIFE  = 45;   // 餌の消滅までの秒数
 const THROW_SPEED = 14;
 const FIREBALL_DAMAGE = 16;
-const FIREBALL_RADIUS = 2.4;
+export const FIREBALL_RADIUS = 2.4;
 const FIREBALL_LIFE   = 3.2;
 
 // アイテムごとの投擲ダメージ
@@ -116,12 +116,52 @@ export function throwItem(itemId, fromPos, facing, pitchAngle = 0.32, speed = TH
   });
 }
 
-export function castFireball(fromPos, facing) {
-  throwItem('fireball', fromPos, facing, 0.08, 22);
+// charge: 0〜1（Rキーの長押しで溜めた力）。大きいほど巨大・高威力・広範囲になる
+function fireballStats(charge) {
+  const c = Math.max(0, Math.min(1, charge));
+  return {
+    scale:  1 + c * 1.8,          // 見た目の大きさ
+    damage: FIREBALL_DAMAGE * (1 + c * 2.0),
+    radius: FIREBALL_RADIUS * (1 + c * 1.1),
+    speed:  28 - c * 8,           // 大きいものは少し遅く
+  };
 }
 
-function addFireBurst(pos) {
+function spawnFireball(fromPos, vel, charge) {
+  const { scale, damage, radius } = fireballStats(charge);
+  const mesh = buildMesh('fireball');
+  mesh.scale.setScalar(scale);
+  mesh.position.copy(fromPos);
+  _scene.add(mesh);
+  projectiles.push({
+    id: _nextId++, itemId: 'fireball', mesh,
+    pos: fromPos.clone(),
+    vel: vel.clone(),
+    age: 0, alive: true, isArrow: false, isFireball: true,
+    fbDamage: damage, fbRadius: radius, fbScale: scale,
+  });
+}
+
+export function castFireball(fromPos, facing, charge = 0) {
+  const { speed } = fireballStats(charge);
+  const cosP = Math.cos(0.08), sinP = Math.sin(0.08);
+  const vel = new THREE.Vector3(
+    Math.sin(facing) * cosP * speed,
+    sinP * speed,
+    Math.cos(facing) * cosP * speed,
+  );
+  spawnFireball(fromPos.clone().add(new THREE.Vector3(0, 0.1, 0)), vel, charge);
+}
+
+// クロスヘア（カメラ視線方向）へ炎を発射
+export function castFireballDir(fromPos, dir, charge = 0) {
+  const { speed } = fireballStats(charge);
+  spawnFireball(fromPos, dir.clone().multiplyScalar(speed), charge);
+}
+
+function addFireBurst(pos, radius = FIREBALL_RADIUS) {
   const g = new THREE.Group();
+  const rScale = radius / FIREBALL_RADIUS;
   const colors = [0xfff1a6, 0xff8a1d, 0xd83a12];
   for (let i = 0; i < 9; i++) {
     const mat = new THREE.MeshBasicMaterial({
@@ -141,9 +181,10 @@ function addFireBurst(pos) {
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.04;
   g.add(ring);
-  const light = new THREE.PointLight(0xff6a1a, 3.4, 10);
+  const light = new THREE.PointLight(0xff6a1a, 3.4 * rScale, 10 * rScale);
   light.position.y = 0.8;
   g.add(light);
+  g.scale.set(rScale, rScale, rScale);
   g.position.copy(pos);
   _scene.add(g);
   fireBursts.push({ mesh: g, age: 0, life: 0.45, light, ring });
@@ -177,9 +218,10 @@ export function consumeBait(bait) {
   bait.alive = false;
 }
 
-// 毎フレーム更新。ヒットイベント [{ enemy, damage }] を返す
+// 毎フレーム更新。{ hits: [{enemy,damage}], fireballImpacts: [Vector3] } を返す
 export function update(delta, enemyList) {
   const hits = [];
+  const fireballImpacts = [];
 
   for (const p of projectiles) {
     if (!p.alive) continue;
@@ -217,11 +259,12 @@ export function update(delta, enemyList) {
       p.alive = false;
       if (p.isFireball) {
         const impact = new THREE.Vector3(p.pos.x, gy + 0.05, p.pos.z);
-        addFireBurst(impact);
+        addFireBurst(impact, p.fbRadius);
+        fireballImpacts.push({ pos: impact.clone(), radius: p.fbRadius });
         for (const e of enemyList) {
           if (!e.alive || e.tamed) continue;
           const dist = Math.hypot(impact.x - e.position.x, impact.z - e.position.z);
-          if (dist <= FIREBALL_RADIUS * e.baseScale) hits.push({ enemy: e, damage: FIREBALL_DAMAGE });
+          if (dist <= p.fbRadius * e.baseScale) hits.push({ enemy: e, damage: p.fbDamage });
         }
       }
       if (BAIT_ITEMS.has(p.itemId)) {
@@ -239,11 +282,12 @@ export function update(delta, enemyList) {
       const dz = p.pos.z - e.position.z;
       if (Math.hypot(dx, dy, dz) < 0.65 * e.baseScale) {
         if (p.isFireball) {
-          addFireBurst(p.pos.clone());
+          addFireBurst(p.pos.clone(), p.fbRadius);
+          fireballImpacts.push({ pos: p.pos.clone(), radius: p.fbRadius });
           for (const target of enemyList) {
             if (!target.alive || target.tamed) continue;
             const dist = Math.hypot(p.pos.x - target.position.x, p.pos.z - target.position.z);
-            if (dist <= FIREBALL_RADIUS * target.baseScale) hits.push({ enemy: target, damage: FIREBALL_DAMAGE });
+            if (dist <= p.fbRadius * target.baseScale) hits.push({ enemy: target, damage: p.fbDamage });
           }
         } else {
           const dmg = THROW_DAMAGE[p.itemId] ?? 2;
@@ -281,5 +325,5 @@ export function update(delta, enemyList) {
     if (fireBursts[i].alive === false) fireBursts.splice(i, 1);
   }
 
-  return hits;
+  return { hits, fireballImpacts };
 }

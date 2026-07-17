@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getLightFactor } from './daynight.js';
 
 const RAIN_COUNT = 1500;
 const RAIN_AREA  = 70;
@@ -16,6 +17,12 @@ const FOG_COL = {
   rain:     new THREE.Color(0x6a7888),
 };
 const FOG_DENSITY = { clear: 0.0055, overcast: 0.0075, rain: 0.014 };
+
+// 夜の空・霧の色（昼夜の明るさに応じて天候色とブレンド）
+const NIGHT_SKY = new THREE.Color(0x0b1226);
+const NIGHT_FOG = new THREE.Color(0x0a1120);
+const _skyTgt = new THREE.Color();
+const _fogTgt = new THREE.Color();
 
 // 天気の遷移順と持続時間[秒]
 const STATES   = ['clear', 'overcast', 'rain', 'overcast'];
@@ -97,10 +104,13 @@ export function update(delta, playerPos) {
 
   const cs = curState();
 
-  // 空と霧の色・濃度をなめらかに変化
-  _scene.background.lerp(SKY_COL[cs], delta * 0.6);
+  // 空と霧の色・濃度をなめらかに変化（昼夜の明るさで暗くする）
+  const brightness = 0.08 + getLightFactor() * 0.92;
+  _skyTgt.copy(SKY_COL[cs]).lerp(NIGHT_SKY, 1 - brightness);
+  _fogTgt.copy(FOG_COL[cs]).lerp(NIGHT_FOG, 1 - brightness);
+  _scene.background.lerp(_skyTgt, delta * 0.6);
   if (_scene.fog) {
-    _scene.fog.color.lerp(FOG_COL[cs], delta * 0.6);
+    _scene.fog.color.lerp(_fogTgt, delta * 0.6);
     _scene.fog.density += (FOG_DENSITY[cs] - _scene.fog.density) * Math.min(1, delta * 0.5);
   }
 

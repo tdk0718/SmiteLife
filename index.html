@@ -37,6 +37,22 @@
       pointer-events: none;
     }
 
+    /* 時計HUD（タイトル下・中央） */
+    #clock-hud {
+      position: fixed;
+      top: 48px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.55);
+      color: #ffe9a8;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 5px 14px;
+      border-radius: 99px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
     /* 右上の所持素材HUD */
     #inv-hud {
       position: fixed;
@@ -135,6 +151,21 @@
       width: 100%;
     }
     .inv-place-btn:hover { background: #2a5438; }
+    .inv-throw-btn {
+      margin-top: 6px;
+      cursor: pointer;
+      border: 1px solid #b5651d;
+      border-radius: 6px;
+      background: #3d2a1e;
+      color: #ffb877;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-family: monospace;
+      display: block;
+      width: 100%;
+    }
+    .inv-throw-btn:hover { background: #543a2a; }
+    .inv-throw-btn.active { background: #b5651d; color: #fff; border-color: #ffb877; }
 
     /* 入手トースト */
     #pickup-toast {
@@ -280,7 +311,7 @@
       background: rgba(0, 0, 0, 0.5);
       z-index: 15;
     }
-    #status-window {
+    #status-window, #pet-window {
       width: min(420px, 90vw);
       background: #25201a;
       border: 2px solid #8B6914;
@@ -290,7 +321,8 @@
       font-family: serif;
       padding: 20px 22px;
     }
-    #status-window h2 {
+    #pet-window { width: min(720px, 94vw); }
+    #status-window h2, #pet-window h2 {
       color: #ffd700;
       font-size: 20px;
       margin-bottom: 14px;
@@ -298,7 +330,7 @@
       justify-content: space-between;
       align-items: baseline;
     }
-    #status-window h2 small { font-family: monospace; font-size: 12px; color: #cbb88a; font-weight: normal; }
+    #status-window h2 small, #pet-window h2 small { font-family: monospace; font-size: 12px; color: #cbb88a; font-weight: normal; }
     .status-grid { display: flex; flex-direction: column; gap: 8px; }
     .status-row {
       display: flex;
@@ -314,6 +346,48 @@
       font-family: monospace;
       font-size: 12px;
       color: #cbb88a;
+    }
+    .pet-layout {
+      display: grid;
+      grid-template-columns: minmax(180px, 240px) 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+    .pet-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 52vh;
+      overflow-y: auto;
+    }
+    .pet-select-btn {
+      cursor: pointer;
+      border: 1px solid #5c4f36;
+      border-radius: 8px;
+      background: #332b22;
+      color: #f0e6d2;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .pet-select-btn.active {
+      border-color: #ffd700;
+      background: #4a3815;
+      color: #ffe9a8;
+    }
+    @media (max-width: 640px) {
+      .pet-layout { grid-template-columns: 1fr; }
+      .pet-list {
+        max-height: none;
+        flex-direction: row;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      .pet-select-btn {
+        flex: 0 0 180px;
+      }
     }
 
     /* 装備中バッジ */
@@ -402,6 +476,122 @@
     }
     .craft-btn:not([disabled]):hover { background: #7a5818; }
     .craft-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    .craft-qty {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .qty-btn {
+      cursor: pointer;
+      border: 1px solid #8B6914;
+      border-radius: 6px;
+      background: #3a2c10;
+      color: #fff8d6;
+      padding: 4px 8px;
+      font-size: 13px;
+      font-family: serif;
+    }
+    .qty-btn:not([disabled]):hover { background: #5a4010; }
+    .qty-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+    .qty-val {
+      min-width: 28px;
+      text-align: center;
+      font-family: monospace;
+      font-size: 14px;
+      color: #fff8d6;
+    }
+
+    /* 設置物のアイテムボックス（焚き火・炉・作業台など） */
+    #box-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 12;
+    }
+    #box-window {
+      width: min(640px, 94vw);
+      max-height: 80vh;
+      overflow-y: auto;
+      background: #25201a;
+      border: 2px solid #6a5a30;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+      color: #f0e6d2;
+      font-family: serif;
+      padding: 18px 20px;
+    }
+    #box-window h2 {
+      color: #ffd700;
+      font-size: 20px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+    #box-window h2 small { font-family: monospace; font-size: 12px; color: #cbb88a; font-weight: normal; }
+    #box-close {
+      cursor: pointer;
+      border: 1px solid #8B6914;
+      border-radius: 6px;
+      background: #3a2c10;
+      color: #fff8d6;
+      padding: 2px 10px;
+      font-family: serif;
+    }
+    #box-close:hover { background: #5a4010; }
+    #box-note { font-family: monospace; font-size: 11px; color: #cbb88a; margin-bottom: 8px; }
+    #box-status { font-family: monospace; font-size: 13px; color: #ffd27a; min-height: 18px; margin-bottom: 8px; }
+    #box-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    #box-actions:empty { display: none; }
+    .box-action-btn {
+      cursor: pointer;
+      border: 1px solid #8B6914;
+      border-radius: 8px;
+      background: #5a4010;
+      color: #fff8d6;
+      padding: 8px 14px;
+      font-size: 14px;
+      font-family: serif;
+    }
+    .box-action-btn:not([disabled]):hover { background: #7a5818; }
+    .box-action-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    .box-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .box-col h3 {
+      font-size: 14px;
+      color: #cbb88a;
+      border-bottom: 1px solid #4a3d28;
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+    }
+    .box-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 0;
+      border-bottom: 1px solid #362d1e;
+    }
+    .box-row:last-child { border-bottom: none; }
+    .box-item { font-size: 14px; }
+    .box-btns { display: flex; gap: 4px; }
+    .box-move-btn {
+      cursor: pointer;
+      border: 1px solid #8B6914;
+      border-radius: 6px;
+      background: #3a2c10;
+      color: #fff8d6;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-family: serif;
+      white-space: nowrap;
+    }
+    .box-move-btn:hover { background: #5a4010; }
+    .box-empty { font-family: monospace; font-size: 12px; color: #8a7a5a; padding: 8px 0; }
 
     /* 設置モード用クロスヘア */
     #crosshair {
@@ -444,10 +634,23 @@
     /* 設置可能（地面）: 薄青 */
     #crosshair[data-state="valid"] .ch-arm,
     #crosshair[data-state="valid"] .ch-dot   { background: rgba(140, 220, 255, 0.92); }
+    /* ダメージ時に画面全体を赤くフラッシュ */
+    #damage-flash {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 18;
+      opacity: 0;
+      background: radial-gradient(ellipse at center,
+        rgba(180, 0, 0, 0) 35%,
+        rgba(200, 0, 0, 0.28) 75%,
+        rgba(150, 0, 0, 0.6) 100%);
+    }
   </style>
 </head>
 <body>
   <div id="title">⚒ SmiteLife</div>
+  <div id="clock-hud"><span id="clock-icon">☀️</span> <span id="clock-text">1日目 08:00</span></div>
   <canvas id="canvas"></canvas>
   <div id="stats-panel">
     <div class="stat-row" id="level-row">
@@ -467,6 +670,7 @@
       <div class="stat-bar"><div id="stamina-fill" class="stat-fill"></div></div>
     </div>
   </div>
+  <div id="damage-flash"></div>
   <div id="inv-hud"></div>
   <div id="pickup-toast"></div>
   <div id="interact-hint"></div>
@@ -495,10 +699,37 @@
       <div id="status-body"></div>
     </div>
   </div>
+  <div id="pet-overlay" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);z-index:15;">
+    <div id="pet-window">
+      <h2>🐺 仲間のステータス <small>L キーで閉じる</small></h2>
+      <div id="pet-body"></div>
+    </div>
+  </div>
   <div id="craft-overlay">
     <div id="craft-window">
-      <h2>簡易クラフト <small>G キーで閉じる</small></h2>
+      <h2><span id="craft-title">簡易クラフト</span> <small>G キーで閉じる</small></h2>
       <div id="craft-list"></div>
+    </div>
+  </div>
+  <div id="box-overlay">
+    <div id="box-window">
+      <h2>
+        <span id="box-title">アイテムボックス</span>
+        <span><small>F キーで閉じる</small> <button id="box-close">✕</button></span>
+      </h2>
+      <div id="box-note"></div>
+      <div id="box-status"></div>
+      <div id="box-actions"></div>
+      <div class="box-columns">
+        <div class="box-col">
+          <h3>📦 格納中 <span id="box-cap"></span></h3>
+          <div id="box-contents"></div>
+        </div>
+        <div class="box-col">
+          <h3>🎒 持ち物（入れられる物のみ）</h3>
+          <div id="box-player"></div>
+        </div>
+      </div>
     </div>
   </div>
   <div id="ui">
@@ -509,12 +740,18 @@
     <span>Shift: ダッシュ（スタミナ消費）</span>
     <span>Q: 回避</span>
     <span>F: 攻撃/採取/設置確定（弓装備時：長押しで狙い→離すと発射）</span>
-    <span>R: 炎魔法（スタミナ消費）</span>
-    <span>T: アイテムを投げる</span>
+    <span>敵を呼ぶ笛: 装備して F で周囲の敵を呼ぶ</span>
+    <span>R: 炎魔法（長押しでチャージ→特大化 / スタミナ消費）</span>
+    <span>T: アイテムを投げる（I画面の「🎯投げる」で事前選択可）</span>
     <span>E: 設置物を拾う/使う</span>
+    <span>F: 焚き火/炉/作業台/旋盤のアイテムボックスを開く（薪や材料を格納）</span>
     <span>I: アイテムボックス (置くボタン→設置)</span>
+    <span>設置中 Z/X: 45度ずつ回転</span>
     <span>G: 簡易クラフト</span>
     <span>C: ステータス</span>
+    <span>L: 仲間（テイム動物）のステータス確認</span>
+    <span>P: 仲間への全体命令（攻撃する⇔攻撃しない）</span>
+    <span>O: 仲間への全体命令（追従⇔放浪）</span>
     <span>1: 生肉を食べる</span>
   </div>
   <script type="module" src="/src/main.js"></script>

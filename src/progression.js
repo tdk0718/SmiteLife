@@ -20,6 +20,16 @@ export function defense(level = combat.level)     { return (level - 1) * 2; }
 
 let levelText, xpFill, xpText, statusOverlay, statusBody;
 let statusOpen = false;
+let _onLevelUp = null;
+export function setOnLevelUp(fn) { _onLevelUp = fn; }
+
+export function serialize() { return { level: combat.level, xp: combat.xp }; }
+export function deserialize({ level = 1, xp = 0 } = {}) {
+  combat.level = level;
+  combat.xp    = xp;
+  applyDerived(false); // 正しい maxHp を Stats に反映
+  render();
+}
 
 export function init() {
   const $ = (id) => (typeof document !== 'undefined' ? document.getElementById(id) : null);
@@ -51,6 +61,7 @@ export function addXp(amount) {
   if (leveledUp) {
     applyDerived(true); // レベルアップ時は最大HPまで回復
     Inventory.showPickup(`⬆ レベルアップ！ 戦闘Lv.${combat.level}`);
+    _onLevelUp?.();
   }
   render();
 }

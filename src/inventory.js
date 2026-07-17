@@ -1,5 +1,9 @@
 import * as Stats from './stats.js';
 import { applySlowEffect } from './stats.js';
+import { THROW_DAMAGE } from './projectile.js';
+
+// T キーで投げられるアイテム（projectile.js の投擲ダメージ表から取得）
+const THROWABLE = new Set(Object.keys(THROW_DAMAGE));
 
 // アイテム定義
 //   edible: 食べられる（hunger/hp 効果）
@@ -13,6 +17,9 @@ export const ITEMS = {
   iron_ore:   { name: '鉄鉱石', icon: '⚙️' },
   copper_ore: { name: '銅鉱石', icon: '🟠' },
   coal:       { name: '石炭',   icon: '⚫' },
+  charcoal:   { name: '木炭',   icon: '🟤', desc: '焚き火で薪を燃やすとできる燃料。簡易炉で使える' },
+  iron_ingot:   { name: '鉄インゴット', icon: '🔩', desc: '簡易炉で鉄鉱石を精錬した金属' },
+  copper_ingot: { name: '銅インゴット', icon: '🟫', desc: '簡易炉で銅鉱石を精錬した金属' },
   // 食料
   meat:       { name: '生肉',   icon: '🍖', edible: true, hunger: 25, hp: -5,
                 desc: '空腹+25 / 体力-5' },
@@ -23,6 +30,12 @@ export const ITEMS = {
                    desc: '岩の採取が2倍 / 攻撃+1' },
   stone_knife:   { name: '石ナイフ',   icon: '🔪', tool: true, category: null, gatherMult: 1, attackBonus: 2,
                    desc: '攻撃+2' },
+  iron_axe:      { name: '鉄の斧',     icon: '🪓', tool: true, category: 'tree', gatherMult: 3, attackBonus: 2,
+                   desc: '木の採取が3倍 / 攻撃+2' },
+  iron_pickaxe:  { name: '鉄のツルハシ', icon: '⛏️', tool: true, category: 'rock', gatherMult: 3, attackBonus: 2,
+                   desc: '岩の採取が3倍 / 攻撃+2' },
+  iron_hammer:   { name: '鉄のハンマー', icon: '🔨', tool: true, category: null, gatherMult: 1, attackBonus: 3,
+                   desc: '攻撃+3 / 頑丈な金属ハンマー' },
   fire_starter:  { name: '火打ち道具', icon: '🔥', tool: true, category: null, gatherMult: 1, attackBonus: 0,
                    desc: '火を起こす道具' },
   torch:         { name: '松明',       icon: '🕯️', tool: true, category: null, gatherMult: 1, attackBonus: 0,
@@ -30,12 +43,15 @@ export const ITEMS = {
   bow:           { name: '弓',         icon: '🏹', tool: true, category: null, gatherMult: 1, attackBonus: 0,
                    ranged: true, desc: '矢があれば遠距離攻撃できる（F キーで発射）' },
   arrow:         { name: '矢',         icon: '🪃', desc: '石と木で作る矢。弓で使用（1本ずつ消費）' },
+  enemy_whistle: { name: '敵を呼ぶ笛', icon: '📯', tool: true, category: null, gatherMult: 1, attackBonus: 0,
+                   desc: '装備して F キーで吹くと、その領域に適した敵が大量に集まる' },
   // 料理
   cooked_meat:   { name: '焼き肉',     icon: '🍗', edible: true, hunger: 40, hp: 8,
                    desc: '空腹+40 / 体力+8' },
   // 素材（追加）
   fur:           { name: '毛皮',       icon: '🦺' },
   stone_block:   { name: '石ブロック', icon: '🧱' },
+  stone_foundation: { name: '石の基礎', icon: '🏗️', desc: '石を積んだ土台。上に壁・柱・床を建てられ、ベッドなども置ける' },
   raw_fish:      { name: '生魚',       icon: '🐟', edible: true, hunger: 15, hp: -2,  desc: '空腹+15 / 体力-2 (焼くと良い)' },
   cooked_fish:   { name: '焼き魚',     icon: '🍣', edible: true, hunger: 30, hp: 6,   desc: '空腹+30 / 体力+6' },
   mushroom:           { name: '食用キノコ', icon: '🍄', edible: true, hunger: 12, hp: 3,   desc: '空腹+12 / 体力+3' },
@@ -49,20 +65,39 @@ export const ITEMS = {
   // 建築素材
   pillar:        { name: '木の柱',     icon: '🪵', desc: '積み重ねられる木の柱' },
   wall_panel:    { name: '木の壁材',   icon: '🪵', desc: '縦横に接続できる木製壁（1m×1.2m）' },
+  window_wall:   { name: '窓付き壁',   icon: '🪟', desc: '窓のついた木製壁（1m×1.2m）。明かり取りに' },
   roof_panel:    { name: '屋根材',     icon: '🏠', desc: '斜めに張る屋根パネル（縦横に接続可）' },
   door:            { name: 'ドア',           icon: '🚪', desc: 'ドア枠付き壁に取り付けるドア' },
   door_frame_wall: { name: 'ドア枠付き壁',   icon: '🚪', desc: 'ドアを取り付けられる壁（1m×1.2m）' },
   floor_board:     { name: '床材',           icon: '🪵', desc: '床に敷く板' },
   workbench:       { name: '作業台',         icon: '🪚', desc: '木材で作った作業台。クラフトに使う' },
+  furnace:         { name: '簡易炉',         icon: '🏭', desc: '石で作る炉。鉱石を金属インゴットに精錬する（石炭が燃料）' },
+  lathe:           { name: '旋盤 (Lv.1)',    icon: '🛠️', desc: '鉄で作る金属加工設備。近くで作業台と同じクラフトができる' },
   bed:             { name: 'ベッド',         icon: '🛏️', desc: '藁と木材で作るベッド。近くで休憩、複数でワープ可能' },
 };
 
 const counts = {};
 let open = false;
 let equipped = null;
+let throwSelected = null; // T キーで投げるアイテム（事前選択）
 let equipChangeHandler = null;
 let onPlaceItem = null;
 export function setOnPlaceItem(fn) { onPlaceItem = fn; }
+
+// --- 投擲アイテムの事前選択 ---
+export function isThrowable(id) { return THROWABLE.has(id); }
+export function getThrowSelected() {
+  // 選択中のアイテムが在庫切れなら解除
+  if (throwSelected && (counts[throwSelected] || 0) <= 0) throwSelected = null;
+  return throwSelected;
+}
+export function setThrowSelected(id) {
+  if (id && !THROWABLE.has(id)) return;
+  throwSelected = (throwSelected === id) ? null : id;
+  const item = ITEMS[throwSelected];
+  showPickup(throwSelected ? `🎯 ${item.icon} ${item.name} を投げる用に選択` : '🎯 投擲選択を解除');
+  render();
+}
 
 let hudEl, panelEl, gridEl, toastEl, toastTimer = null;
 
@@ -79,10 +114,30 @@ export function init() {
         onPlaceItem?.(placeBtn.dataset.id);
         return;
       }
+      const throwBtn = e.target.closest('.inv-throw-btn');
+      if (throwBtn && throwBtn.dataset.id) {
+        setThrowSelected(throwBtn.dataset.id);
+        return;
+      }
       const slot = e.target.closest('.inv-slot');
       if (slot && slot.dataset.id) use(slot.dataset.id);
     });
   }
+  render();
+}
+
+export function serialize() {
+  // 0個のアイテムは除外して保存サイズを削減
+  const saved = {};
+  for (const [id, qty] of Object.entries(counts)) { if (qty > 0) saved[id] = qty; }
+  return { counts: saved, equipped };
+}
+export function deserialize({ counts: saved = {}, equipped: eq = null } = {}) {
+  for (const [id, qty] of Object.entries(saved)) {
+    if (ITEMS[id] && qty > 0) counts[id] = qty;
+  }
+  equipped = (eq && ITEMS[eq] && (counts[eq] ?? 0) > 0) ? eq : null;
+  // render は init() 後に呼ばれる想定だが念のため呼ぶ
   render();
 }
 
@@ -179,7 +234,7 @@ function render() {
       return;
     }
     // placeable IDs (defined in placedObjects, avoid circular import by listing here)
-    const PLACEABLE = new Set(['wood','straw','stone','torch','coal','stone_block','wooden_fence','pillar','wall_panel','roof_panel','door','door_frame_wall','floor_board','workbench','bed']);
+    const PLACEABLE = new Set(['wood','straw','stone','torch','coal','stone_block','stone_foundation','wooden_fence','pillar','wall_panel','window_wall','roof_panel','door','door_frame_wall','floor_board','workbench','bed','furnace','lathe']);
     gridEl.innerHTML = owned.map((id) => {
       const item = ITEMS[id];
       const isEquipped = equipped === id;
@@ -189,12 +244,16 @@ function render() {
       const placeBtn = PLACEABLE.has(id)
         ? `<button class="inv-place-btn" data-id="${id}">📦 置く</button>`
         : '';
+      const isThrowSel = throwSelected === id;
+      const throwBtn = THROWABLE.has(id)
+        ? `<button class="inv-throw-btn${isThrowSel ? ' active' : ''}" data-id="${id}">🎯 ${isThrowSel ? '投擲中' : '投げる'}</button>`
+        : '';
       return `
         <div class="inv-slot${item.edible || item.tool ? ' edible' : ''}${isEquipped ? ' equipped' : ''}" data-id="${id}">
           <div class="inv-icon">${item.icon}</div>
-          <div class="inv-name">${item.name}${isEquipped ? ' <span class="eq-badge">装備中</span>' : ''}</div>
+          <div class="inv-name">${item.name}${isEquipped ? ' <span class="eq-badge">装備中</span>' : ''}${isThrowSel ? ' <span class="eq-badge">🎯投擲</span>' : ''}</div>
           <div class="inv-count">×${counts[id]}</div>
-          ${hint}${placeBtn}
+          ${hint}${placeBtn}${throwBtn}
         </div>`;
     }).join('');
   }

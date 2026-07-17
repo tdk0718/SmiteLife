@@ -42,11 +42,110 @@ let currentAction = null;
 let modelReady   = false;
 let rightHandBone = null;
 let handItem     = null;
+let fallbackModel = null; // FBX 読込前/失敗時に表示する簡易プレースホルダ
 
 // アニメーション切り替えで参照する移動状態
 let _isMoving    = false;
 let _isSprinting = false;
 let _isAttacking = false;
+let _isSwimming  = false;
+let _attackAction = null; // 現在再生中の FBX 攻撃アクション
+
+// ── 手続きアニメーション用 ────────────────────────────────
+const _pQ = new THREE.Quaternion();
+const _pE = new THREE.Euler();
+let _boneMap = null; // ロード後に構築するボーン名→オブジェクトマップ
+
+// FBX 読込前/失敗時のフォールバック主人公（簡易ヒューマノイド）。
+// model.fbx が正常に読めれば除去される。読めなくても主人公が見えて操作できるようにする。
+function buildFallbackHumanoid() {
+  const g = new THREE.Group();
+  const skinMat = new THREE.MeshLambertMaterial({ color: 0xe0a878 });
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x3a6ea5 });
+  const legMat  = new THREE.MeshLambertMaterial({ color: 0x394452 });
+  // 胴体
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.55, 4, 8), bodyMat);
+  torso.position.y = 1.15; torso.castShadow = true;
+  g.add(torso);
+  // 頭
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), skinMat);
+  head.position.y = 1.72; head.castShadow = true;
+  g.add(head);
+  // 腕
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.5, 4, 6), skinMat);
+    arm.position.set(sx * 0.38, 1.2, 0); arm.castShadow = true;
+    g.add(arm);
+  }
+  // 脚
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.6, 4, 6), legMat);
+    leg.position.set(sx * 0.15, 0.5, 0); leg.castShadow = true;
+    g.add(leg);
+  }
+  return g;
+}
+
+// THREE.traverse を使わず、undefined/null を無視して安全に全ノードを巡回する
+function safeWalk(root, cb) {
+  const stack = [root];
+  const seen = new Set();
+  while (stack.length) {
+    const o = stack.pop();
+    if (!o || seen.has(o)) continue;
+    seen.add(o);
+    cb(o);
+    if (Array.isArray(o.children)) {
+      for (const c of o.children) if (c) stack.push(c);
+    }
+  }
+}
+
+// 一部の FBX はボーン階層の children に undefined が混じることがあり、
+// THREE の traverse / レンダラが再帰中にクラッシュする（Cannot read properties of undefined）。
+// 追加前に不正な子を除去し、スケルトンの欠損ボーンはダミーで埋めて整合を保つ。
+function sanitizeFbx(root) {
+  // 1) 全ノードの children 配列から undefined/null を物理的に除去（レンダラ含む全 traverse を安全化）
+  let removed = 0;
+  safeWalk(root, (o) => {
+    if (Array.isArray(o.children) && o.children.some(c => c == null)) {
+      const clean = o.children.filter(c => c != null);
+      removed += o.children.length - clean.length;
+      o.children = clean;
+    }
+  });
+  // 2) SkinnedMesh の skeleton.bones に欠損があればダミーBoneで置換（index整合維持・描画クラッシュ防止）
+  let missingBones = 0;
+  safeWalk(root, (o) => {
+    if (o.isSkinnedMesh && o.skeleton && Array.isArray(o.skeleton.bones)) {
+      o.skeleton.bones = o.skeleton.bones.map(b => { if (!b) { missingBones++; return new THREE.Bone(); } return b; });
+    }
+  });
+  console.log(`[player] sanitizeFbx: 不正な子ノード除去=${removed}, 欠損ボーン補完=${missingBones}`);
+}
+
+function buildBoneMap(root) {
+  _boneMap = {};
+  safeWalk(root, obj => {
+    if (!obj.isBone) return;
+    _boneMap[obj.name] = obj; // フルネーム
+    // コロン・アンダースコア・パイプ区切りの短縮名でも引けるようにする
+    const sep = Math.max(obj.name.lastIndexOf(':'), obj.name.lastIndexOf('_'), obj.name.lastIndexOf('|'));
+    if (sep >= 0) {
+      const short = obj.name.slice(sep + 1);
+      if (!_boneMap[short]) _boneMap[short] = obj;
+    }
+  });
+  console.log('[bone map] first 10 keys:', Object.keys(_boneMap).slice(0, 10));
+}
+
+function applyBoneRot(name, x, y, z) {
+  if (!_boneMap) return;
+  const bone = _boneMap[name];
+  if (!bone) return;
+  _pE.set(x, y, z);
+  bone.quaternion.multiply(_pQ.setFromEuler(_pE));
+}
 
 // ── 衝突判定用（再利用してGC抑制） ──────────────────────
 const _playerBox = new THREE.Box3();
@@ -143,6 +242,8 @@ export function getPosition() {
   return group ? group.position.clone() : new THREE.Vector3(0, 0, 0);
 }
 
+export function setVisible(v) { if (group) group.visible = v; }
+
 export function getFacing() {
   return group ? group.rotation.y : 0;
 }
@@ -196,10 +297,25 @@ export function setHandItem(itemId) {
 export function triggerAttack() {
   attackTimer  = ATTACK_DURATION;
   _isAttacking = true;
-  if (actions.attack) {
-    // ベースアニメ（歩き/アイドル）はそのままにして、攻撃を上半身オーバーレイで再生
-    actions.attack.reset().setEffectiveWeight(1).play();
-  }
+  const action = (handItem && actions.melee) ? actions.melee : actions.attack;
+  if (!action) return;
+  if (_attackAction) _attackAction.stop();
+  if (currentAction) currentAction.fadeOut(0.12);
+  action.reset().setEffectiveWeight(1).fadeIn(0.12).play();
+  _attackAction = action;
+  currentAction = action;
+}
+
+export function triggerPunch() {
+  attackTimer  = ATTACK_DURATION;
+  _isAttacking = true;
+  const action = actions.punch || actions.attack;
+  if (!action) return;
+  if (_attackAction) _attackAction.stop();
+  if (currentAction) currentAction.fadeOut(0.12);
+  action.reset().setEffectiveWeight(1).fadeIn(0.12).play();
+  _attackAction = action;
+  currentAction = action;
 }
 
 export function startDodge(cameraYaw, inputState) {
@@ -286,51 +402,94 @@ export function create(scene) {
   group.rotation.y = Math.PI;
   scene.add(group);
 
+  // FBX が読めるまで（または読めなかった場合に）表示する簡易主人公。
+  fallbackModel = buildFallbackHumanoid();
+  group.add(fallbackModel);
+
   const loader = new FBXLoader();
 
+  console.log('[player] model.fbx ロード開始…');
   loader.load('/chara/model.fbx',
     (fbx) => {
+     try {
+      sanitizeFbx(fbx); // 不正な undefined 子ノードを除去（traverse クラッシュ対策）
       fbx.scale.setScalar(0.01); // Mixamo FBX は cm 単位
       fbx.castShadow = true;
-      fbx.traverse((child) => {
+      let meshCount = 0, boneCount = 0;
+      safeWalk(fbx, (child) => {
         if (child.isMesh) {
+          meshCount++;
           child.castShadow = true;
           child.receiveShadow = true;
+          // スキニングでボーンが動くとバインドポーズの境界球が実体とズレ、
+          // 視錐台カリングで丸ごと消えることがある → カリングを無効化して常に描画
+          child.frustumCulled = false;
           if (child.material) {
             const mats = Array.isArray(child.material) ? child.material : [child.material];
             mats.forEach(m => { m.side = THREE.FrontSide; });
           }
         }
         // 右手ボーンを探す（Mixamo: mixamorigRightHand）
-        if (child.isBone && /righthand/i.test(child.name)) {
-          rightHandBone = child;
-          // setHandItem() が先に呼ばれた場合はここで追加
-          if (handItem) rightHandBone.add(handItem);
+        if (child.isBone) {
+          boneCount++;
+          if (/righthand/i.test(child.name)) {
+            rightHandBone = child;
+            // setHandItem() が先に呼ばれた場合はここで追加
+            if (handItem) rightHandBone.add(handItem);
+          }
         }
       });
       group.add(fbx);
+      // 本来のモデルが表示できたのでフォールバックを除去
+      if (fallbackModel) { group.remove(fallbackModel); fallbackModel = null; }
+      console.log(`[player] model.fbx ロード成功: meshes=${meshCount} bones=${boneCount}`);
+      buildBoneMap(fbx); // ボーン名マップを構築（コンソールで確認できる）
 
       mixer = new THREE.AnimationMixer(fbx);
       // 攻撃アニメ終了 → 攻撃アクションを停止（ベース歩きはそのまま継続）
       mixer.addEventListener('finished', (e) => {
-        if (e.action === actions.attack) {
+        if (e.action === _attackAction) {
           _isAttacking = false;
           e.action.stop();
+          _attackAction = null;
+          // 攻撃終了後にベースアニメを再開
+          const baseName = !onGround ? 'jump'
+            : _isMoving ? (_isSprinting && actions.run ? 'run' : 'walk')
+            : 'idle';
+          const base = actions[baseName] || actions.idle;
+          if (base) { base.reset().fadeIn(0.18).play(); currentAction = base; }
         }
       });
 
       const loadAnim = (url, name, loop = true, upperBodyOnly = false) => {
         loader.load(url, (anim) => {
-          const clip = anim.animations[0];
+         try {
+          // トラック数が最大のクリップを使う（空のダミーが index 0 に入る場合がある）
+          const clips = anim.animations || [];
+          if (clips.length === 0) { console.warn(`[player] ${name}: アニメクリップが無い（スキップ）`); return; }
+          const clip = clips.reduce((best, a) => a.tracks.length > best.tracks.length ? a : best, clips[0]);
+          if (!clip) { console.warn(`[player] ${name}: 有効なクリップが選べない（スキップ）`); return; }
           clip.name  = name;
 
+          // FBXLoader はボーン名のコロンを除去して結合する（mixamorig1:Hips → mixamorig1Hips）。
+          // Punch/Swimming/Melee 等の単体 DL は mixamorig: 形式のため
+          // コロン除去 → mixamorig1Xxx 形式に統一してモデルのボーンとマッチさせる。
+          clip.tracks.forEach(t => {
+            const dotIdx = t.name.lastIndexOf('.');
+            if (dotIdx < 0) return;
+            let bone = t.name.slice(0, dotIdx).replace(/:/g, ''); // コロン除去
+            const prop = t.name.slice(dotIdx + 1);
+            // mixamorigXxx → mixamorig1Xxx（モデルのボーン名形式に統一）
+            if (bone.startsWith('mixamorig') && !bone.startsWith('mixamorig1')) {
+              bone = 'mixamorig1' + bone.slice('mixamorig'.length);
+            }
+            t.name = bone + '.' + prop;
+          });
           clip.tracks = clip.tracks.filter(track => {
             const bone = track.name.split('.')[0];
             const prop = track.name.split('.')[1];
             // Hips の位置トラックを全アニメで除去（ゲームコードが移動を管理するため）
-            // ループ時のスナップバックがこれで防げる
             if (/(hip|root)/i.test(bone) && prop === 'position') return false;
-            // 攻撃は上半身のみ（下半身ボーンも除去）
             if (upperBodyOnly && /(hip|upleg|leftleg|rightleg|foot|toe)/i.test(bone)) return false;
             return true;
           });
@@ -345,20 +504,38 @@ export function create(scene) {
             action.play();
             currentAction = action;
           }
+         } catch (e) {
+           console.warn(`[player] アニメ ${name} の処理でエラー（スキップ）:`, e?.message || e);
+         }
+        }, undefined, (err) => {
+          console.warn(`[player] アニメ ${name} のロード失敗:`, err?.message || err);
         });
       };
 
       loadAnim('/chara/anim_idle.fbx',   'idle');
       loadAnim('/chara/anim_walk.fbx',   'walk');
       loadAnim('/chara/anim_run.fbx',    'run');
-      // attack は上半身のみ（下半身を除去してジャンプを防ぐ）
-      loadAnim('/chara/anim_attack.fbx', 'attack', false, true);
+      loadAnim('/chara/anim_attack.fbx', 'attack', false);
+      loadAnim('/chara/anim_punch.fbx',  'punch',  false);
+      loadAnim('/chara/anim_melee.fbx',  'melee',  false);
+      loadAnim('/chara/anim_swim.fbx',   'swim',   true);
       loadAnim('/chara/anim_jump.fbx',   'jump',   false);
 
       modelReady = true;
+     } catch (e) {
+       // モデル処理の途中で例外が出てもフォールバックは残す（主人公が消えないように）
+       console.error('[player] model.fbx 処理中にエラー:', e?.message || e, e?.stack);
+     }
     },
     undefined,
-    (err) => console.error('FBX load error:', err)
+    (err) => {
+      // model.fbx のロード自体が失敗 → フォールバックのまま操作できる状態を維持
+      console.error('[player] FBX load error (model.fbx):',
+        'message=', err?.message,
+        'httpStatus=', err?.target?.status,
+        err);
+      console.warn('[player] model.fbx を読み込めませんでした。簡易主人公で続行します。');
+    }
   );
 
   return group;
@@ -384,6 +561,7 @@ export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCol
 
   _isMoving    = isMoving;
   _isSprinting = isMoving && sprint;
+  _isSwimming  = inWater;
 
   if (isMoving) {
     const nx = (moveX / len) * baseSpeed * delta;
@@ -401,8 +579,9 @@ export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCol
   group.rotation.y += shortestAngleDelta(group.rotation.y, facingAngle) * Math.min(1, delta * TURN_SPEED);
 
   // 垂直移動（水泳 or 通常重力）
+  if (inWater) swimTime += delta * 2.5; // 浅い水でも水泳アニメが動くよう常時加算
+
   if (swimming) {
-    swimTime += delta * 2.5;
     velY += SWIM_BUOYANCY * delta;
     if (jump) velY = Math.max(velY, 2.5);
     velY *= SWIM_DRAG;
@@ -423,14 +602,20 @@ export function update(delta, inputState, cameraYaw, collidableBoxes, terrainCol
     onGround  = true;
   }
 
-  if (attackTimer > 0) attackTimer = Math.max(0, attackTimer - delta);
+  if (attackTimer > 0) {
+    attackTimer = Math.max(0, attackTimer - delta);
+    // 手続きパンチ（FBX なし）の終了検出
+    if (attackTimer === 0 && !_attackAction) _isAttacking = false;
+  }
 
   // AnimationMixer 更新
   if (mixer) mixer.update(delta);
 
-  // ベースアニメ状態機械（攻撃中も歩き/アイドルは継続して下半身を動かす）
-  if (modelReady) {
-    if (!onGround && actions.jump) {
+  // ベースアニメ状態機械（FBX 攻撃中はスキップ）
+  if (modelReady && !_attackAction) {
+    if (inWater && actions.swim) {
+      switchAction('swim');
+    } else if (!onGround && actions.jump) {
       switchAction('jump');
     } else if (isMoving) {
       switchAction(sprint && actions.run ? 'run' : 'walk');

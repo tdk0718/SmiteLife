@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: c6d505d7c8684d1faead3245eeee41cf
+TextureImporter:
+  serializedVersion: 12
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 1
+  sRGBTexture: 1
+  alphaSource: 1
+  alphaIsTransparency: 1
+  textureType: 0
+  textureShape: 1
+  wrapMode: 1
+  filterMode: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

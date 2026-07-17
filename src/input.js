@@ -14,6 +14,11 @@ export const keys = {
   craft: false,
   throw: false,
   castFire: false,
+  petStatus: false,
+  petOrder: false,
+  petMove: false,
+  placeRotateLeft: false,
+  placeRotateRight: false,
 };
 
 const KEY_MAP = {
@@ -32,6 +37,11 @@ const KEY_MAP = {
   KeyG: 'craft',
   KeyT: 'throw',
   KeyR: 'castFire',
+  KeyL: 'petStatus',
+  KeyP: 'petOrder',
+  KeyO: 'petMove',
+  KeyZ: 'placeRotateLeft',
+  KeyX: 'placeRotateRight',
 };
 
 // 「押した瞬間」を1回だけ取り出すためのエッジ管理
