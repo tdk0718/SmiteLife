@@ -118,6 +118,15 @@ function buildHandMesh(itemId) {
       g.add(handle, flame);
       break;
     }
+    case 'bow': {
+      // 弓本体（半円）+ 弦
+      const limb = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.015, 6, 14, Math.PI), woodMat);
+      limb.rotation.z = Math.PI / 2; // 弧が縦向きになる
+      const stringMat = new THREE.MeshLambertMaterial({ color: 0xe8e4d0 });
+      const string = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.48, 4), stringMat);
+      g.add(limb, string);
+      break;
+    }
     default: break;
   }
   return g;
@@ -138,16 +147,20 @@ export function getFacing() {
   return group ? group.rotation.y : 0;
 }
 
+// ベッド等の設置物へ移動する際は、その当たり判定(高さ約0.6m)の上に出す
+// （内部に置くと衝突判定に埋まって動けなくなる）
+const WARP_Y_OFFSET = 0.75;
+
 export function warpTo(pos) {
   if (!group) return;
-  group.position.set(pos.x, pos.y + 0.15, pos.z);
+  group.position.set(pos.x, pos.y + WARP_Y_OFFSET, pos.z);
   velY = 0;
 }
 
 export function respawn(spawnPos) {
   if (!group) return;
   const px = spawnPos ? spawnPos.x : 0;
-  const py = spawnPos ? spawnPos.y + 0.20 : getTerrainHeight(0, 0);
+  const py = spawnPos ? spawnPos.y + WARP_Y_OFFSET : getTerrainHeight(0, 0);
   const pz = spawnPos ? spawnPos.z : 0;
   group.position.set(px, py, pz);
   group.rotation.y = Math.PI;

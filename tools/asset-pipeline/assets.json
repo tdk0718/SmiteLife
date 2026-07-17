@@ -1,0 +1,28 @@
+{
+  "defaults": {
+    "targetTris": 4000,
+    "style": "stylized low-poly fantasy game asset, clean silhouette, hand-painted texture look, vibrant colors"
+  },
+  "assets": {
+    "sword_01": {
+      "prompt": "a fantasy iron short sword with a leather-wrapped hilt and a simple crossguard",
+      "targetTris": 2000,
+      "size": 1.2
+    },
+    "tree_01": {
+      "prompt": "a broadleaf tree with a thick brown trunk and rounded green foliage",
+      "targetTris": 4000,
+      "size": 6
+    },
+    "rock_01": {
+      "prompt": "a mossy gray boulder",
+      "targetTris": 1500,
+      "size": 1.5
+    },
+    "house_01": {
+      "prompt": "a small medieval wooden house with a thatched roof, a wooden door and a stone chimney",
+      "targetTris": 8000,
+      "size": 8
+    }
+  }
+}

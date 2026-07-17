@@ -132,10 +132,11 @@ function loop() {
 
   const dead     = Stats.isDead();
   const equipped = Inventory.getEquipped();
+  const uiOpen   = Inventory.isOpen() || Crafting.isOpen();
 
   // ── 弓の狙い判定（Fキー長押し → 一人称狙い、離すと発射）──────────────
   let bowFireTriggered = false;
-  if (equipped === 'bow' && !dead && !PlacedObjects.isInPlacementMode()) {
+  if (equipped === 'bow' && !dead && !uiOpen && !PlacedObjects.isInPlacementMode()) {
     if (keys.attack) {
       if (!isBowAiming) isBowAiming = true;
     } else if (isBowAiming) {
@@ -181,7 +182,7 @@ function loop() {
   enemies.update(delta, playerPos, world);
 
   // ── 投擲処理 ──────────────────────────────────────
-  if (!dead && throwPressed && !PlacedObjects.isInPlacementMode() && !isBowAiming) {
+  if (!dead && throwPressed && !uiOpen && !PlacedObjects.isInPlacementMode() && !isBowAiming) {
     const throwId  = pickThrowItem(equipped);
     if (throwId) {
       Inventory.remove(throwId, 1);
@@ -194,7 +195,7 @@ function loop() {
   }
 
   // ── 炎魔法 ──────────────────────────────────────
-  if (!dead && castFirePressed && !PlacedObjects.isInPlacementMode() && !isBowAiming) {
+  if (!dead && castFirePressed && !uiOpen && !PlacedObjects.isInPlacementMode() && !isBowAiming) {
     if (Stats.spendStamina(FIRE_MAGIC_STAMINA)) {
       const origin = playerPos.clone().add(new THREE.Vector3(0, 1.45, 0));
       Projectile.castFireball(origin, Player.getFacing());
@@ -240,8 +241,11 @@ function loop() {
     if (hintEl) hintEl.textContent = hint || '';
   }
 
+  // 設置モード中の F は「設置確定」専用。tryInteract / Gather には流さない
+  // （nowPlacement はフレーム開始時の設置モード状態）
+  const attackForWorld = attackPressed && !isBowAiming && !nowPlacement && !uiOpen;
   const attackConsumed = !dead && PlacedObjects.tryInteract(
-    attackPressed && !isBowAiming, interactPressed, playerPos, playerFacing, equipped
+    attackForWorld, interactPressed, playerPos, playerFacing, equipped
   );
 
   // ── 弓での矢発射（Fキーを離した瞬間）────────────────────────────
@@ -257,7 +261,7 @@ function loop() {
   }
 
   if (!dead) {
-    Gather.update(delta, attackPressed && !attackConsumed && !isBowAiming, playerPos, world, enemies);
+    Gather.update(delta, attackForWorld && !attackConsumed, playerPos, world, enemies);
   }
 
   // テイム動物 HUD 更新

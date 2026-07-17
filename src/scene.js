@@ -267,15 +267,18 @@ function addRock(parent, x, z, rng, id) {
 }
 
 // 草の色バリエーション（緑の濃淡）
+// マテリアルは共有する（パッチごとに生成するとチャンク破棄時にリークする）
 const GRASS_COLORS = [0x4a9a2e, 0x52a832, 0x3d8a28, 0x5cb038, 0x45952b];
+const grassMaterials = GRASS_COLORS.map(
+  (color) => new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })
+);
 
 function addGrass(parent, x, z, rng, id) {
   const y = getTerrainHeight(x, z);
   if (y <= 0.35) return null;
   const nodeGroup = new THREE.Group();
   nodeGroup.position.set(x, y, z);
-  const color = GRASS_COLORS[Math.floor(rng() * GRASS_COLORS.length)];
-  const mat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
+  const mat = grassMaterials[Math.floor(rng() * grassMaterials.length)];
   // 膝くらいの高さ (PLAYER_H=1.9, 膝≒0.5m) 刃の高さ 0.52〜0.62m
   const bladeH = 0.52 + rng() * 0.10;
   const bladeW = 0.13 + rng() * 0.06;
@@ -315,14 +318,24 @@ function pickMushroomType(rng) {
   return MUSHROOM_TYPES[0];
 }
 
+// キノコのマテリアルはタイプ単位で共有（個体ごとの生成はリークの原因）
+const mushroomStemMat = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 });
+function getMushroomMats(def) {
+  if (!def._capMat) {
+    def._capMat  = new THREE.MeshLambertMaterial({ color: def.capColor, emissive: def.emissive, emissiveIntensity: 0.35 });
+    def._spotMat = def.spotColor ? new THREE.MeshLambertMaterial({ color: def.spotColor }) : null;
+  }
+  return { capMat: def._capMat, spotMat: def._spotMat };
+}
+
 function addMushroom(parent, x, z, rng, id) {
   const y = getTerrainHeight(x, z);
   if (y <= 0.35) return null;
   const def = pickMushroomType(rng);
   const nodeGroup = new THREE.Group();
   nodeGroup.position.set(x, y, z);
-  const stemMat = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 });
-  const capMat  = new THREE.MeshLambertMaterial({ color: def.capColor, emissive: def.emissive, emissiveIntensity: 0.35 });
+  const stemMat = mushroomStemMat;
+  const { capMat, spotMat } = getMushroomMats(def);
   const stemH = 0.12 + rng() * 0.08;
   const capR  = 0.10 + rng() * 0.08;
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.030, stemH, 6), stemMat);
@@ -331,8 +344,7 @@ function addMushroom(parent, x, z, rng, id) {
   cap.scale.y = 0.55;
   cap.position.y = stemH + capR * 0.35;
   nodeGroup.add(stem, cap);
-  if (def.spotColor && def.spots > 0) {
-    const spotMat = new THREE.MeshLambertMaterial({ color: def.spotColor });
+  if (spotMat && def.spots > 0) {
     for (let s = 0; s < def.spots; s++) {
       const spot = new THREE.Mesh(new THREE.SphereGeometry(0.018, 5, 4), spotMat);
       const sa = s * (Math.PI * 2 / def.spots) + rng() * 0.5;
@@ -445,15 +457,14 @@ function createChunk(cx, cz, destroyedResourceIds) {
   return { cx, cz, group, ground, resourceNodes };
 }
 
-function rebuildCollisionData(scene, world) {
+// 資源ノードの衝突ボックス一覧を再構築（軽量。ノード破壊のたびに呼べる）
+function rebuildNodeCollision(world) {
   world.collidableBoxes.length = 0;
   world.resourceNodes.length = 0;
 
   const collidableMeshes = [...world.staticCollidableMeshes];
-  const terrainMeshes = [];
 
   for (const chunk of world.chunks.values()) {
-    terrainMeshes.push(chunk.ground);
     for (const node of chunk.resourceNodes) {
       if (!node.alive) continue;
       world.resourceNodes.push(node);
@@ -467,6 +478,12 @@ function rebuildCollisionData(scene, world) {
     mesh.updateWorldMatrix(true, false);
     world.collidableBoxes.push(new THREE.Box3().setFromObject(mesh));
   }
+}
+
+// 地形BVHコライダーを再構築（重い。チャンクの出入りが変わったときだけ呼ぶ）
+function rebuildTerrainCollider(scene, world) {
+  const terrainMeshes = [];
+  for (const chunk of world.chunks.values()) terrainMeshes.push(chunk.ground);
 
   if (world.terrainCollider) {
     scene.remove(world.terrainCollider);
@@ -493,7 +510,8 @@ function damageNode(scene, world, node, amount = 1) {
   const parent = node.group.parent;
   if (parent) parent.remove(node.group);
   disposeMeshGeometry(node.group);
-  rebuildCollisionData(scene, world);
+  // 地形BVHはノード破壊で変化しないため、軽いボックス再構築のみ行う
+  rebuildNodeCollision(world);
   return true;
 }
 
@@ -531,7 +549,8 @@ function updateChunks(scene, world, position, force = false) {
     world.chunks.delete(key);
   }
 
-  rebuildCollisionData(scene, world);
+  rebuildNodeCollision(world);
+  rebuildTerrainCollider(scene, world);
   return true;
 }
 
@@ -550,6 +569,7 @@ export function create(scene) {
   dirLight.shadow.camera.bottom = -120;
   dirLight.shadow.bias = -0.0003;
   scene.add(dirLight);
+  scene.add(dirLight.target); // ターゲットをシーンに入れないと追従時に行列が更新されない
 
   // 半球ライト（空→地面のグラデーション環境光）
   const hemiLight = new THREE.HemisphereLight(0x8ec8ff, 0x7a8c4a, 0.65);
@@ -578,6 +598,11 @@ export function create(scene) {
     destroyedResourceIds: new Set(),
     terrainCollider: null,
     update(position) {
+      // 太陽光と水面をプレイヤーに追従させる
+      // （固定のままだと原点から離れたとき影と水が消える）
+      dirLight.position.set(position.x + 60, 110, position.z + 45);
+      dirLight.target.position.set(position.x, 0, position.z);
+      water.position.set(position.x, 0.02, position.z);
       return updateChunks(scene, world, position);
     },
     getResourceNodes() {

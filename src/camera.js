@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getTerrainHeight } from './scene.js';
 
 const DISTANCE     = 8;
 const HEIGHT       = 3;
@@ -87,6 +88,9 @@ export function update(target) {
   } else {
     currentPos.lerp(targetPos, LERP);
   }
+  // 地形へのめり込み防止（丘の斜面などでカメラが地中に潜らないように）
+  const minY = getTerrainHeight(currentPos.x, currentPos.z) + 0.4;
+  if (currentPos.y < minY) currentPos.y = minY;
   camera.position.copy(currentPos);
   camera.lookAt(target.x, target.y + 1, target.z);
 }

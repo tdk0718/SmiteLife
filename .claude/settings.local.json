@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.meshy.ai)",
+      "Read(//Applications/Blender.app/Contents/MacOS/**)",
+      "Bash(/Applications/Blender.app/Contents/MacOS/Blender --version)"
+    ]
+  }
+}

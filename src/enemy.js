@@ -428,6 +428,11 @@ export function create(scene) {
       toast(`🐺 仲間の狼が ${killed.tier?.label ?? ''} ${killed.type.name}を倒した！ ${parts.join(' ')} (+${killed.xp}EXP)`);
       removeEnemy(killed);
     }
+
+    // 死亡済みの敵を配列から除去（残すと配列が無限に成長する）
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (!enemies[i].alive) enemies.splice(i, 1);
+    }
   }
 
   function damageEnemy(enemy, dmg) {
